@@ -59,8 +59,8 @@ namespace HeroHQ.Rules
     ///
     /// Nothing here waits or draws: every call returns the list of what happened and the screen plays it back.
     /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07), the
-    /// buttons and Damage pieces (P1-09, SkillResolver); the other pieces (P1-10), bonuses (P1-12) and
-    /// triggers (P1-13) come with their tasks.
+    /// buttons and Damage pieces (P1-09, SkillResolver), the other pieces, cooldown and charge (P1-10);
+    /// counters (P1-11), bonuses (P1-12) and triggers (P1-13) come with their tasks.
     /// </summary>
     public class Fight
     {
@@ -179,25 +179,32 @@ namespace HeroHQ.Rules
             if (option.NeedsChoice && !option.Choosable.Contains(choice.Target))
                 throw new ArgumentException($"{Acting}'s {choice.Button} can't choose {choice.Target?.ToString() ?? "nobody"}.", nameof(choice));
             var events = new List<FightEvent>();
+            var actor = Acting;
 
-            // step 4, the skill (P1-09: Damage pieces; the rest with P1-10 and P1-11)
-            events.AddRange(SkillResolver.Use(this, Acting, choice.Button, option.NeedsChoice ? choice.Target : null));
+            // step 4, the skill (counters come with P1-11)
+            events.AddRange(SkillResolver.Use(this, actor, choice.Button, option.NeedsChoice ? choice.Target : null));
+            actor.Acted = true;
 
             // step 5 and 6, end of turn and win check
             events.AddRange(EndTurn());
+
+            // the Special's cooldown starts after this turn: greyed on the hero's next `cooldown` turns (02 GDD 4)
+            if (choice.Button == Button.Special) actor.Cooldown = actor.Hero.Special.Cooldown ?? 0;
             return events;
         }
 
         /// <summary>
         /// 02 GDD 2, steps 5–6, shared by a played turn and a skipped one: the acting hero's meter drops by one
-        /// full bar (keeping the overflow), their effects count down, then the win check. Both sides can't be
-        /// down at once: only one side attacks at a time, and a knocked-out hero can't counter-attack (02 GDD 2).
+        /// full bar (keeping the overflow), their effects and Special cooldown count down (a skipped turn too,
+        /// reading R10), then the win check. Both sides can't be down at once: only one side attacks at a time,
+        /// and a knocked-out hero can't counter-attack (02 GDD 2).
         /// </summary>
         List<FightEvent> EndTurn()
         {
             var events = new List<FightEvent>();
             TurnMeter.EndTurn(Acting, meterFull);
             events.AddRange(Effects.EndTurn(Acting));
+            if (Acting.Cooldown > 0) Acting.Cooldown--;
             Acting = null;
 
             if (enemies.All(f => f.KnockedOut))

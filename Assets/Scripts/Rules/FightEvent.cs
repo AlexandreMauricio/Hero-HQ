@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace HeroHQ.Rules
 {
@@ -23,6 +24,14 @@ namespace HeroHQ.Rules
         Damaged,
         /// <summary>The hero's Health hit 0: out of the fight at once, all effects lost (02 GDD 2).</summary>
         KnockedOut,
+        /// <summary>A heal landed (<see cref="FightEvent.Amount"/> = the Health given back; 0 when the hero was already full).</summary>
+        Healed,
+        /// <summary>A Clear piece took a bad effect off (<see cref="FightEvent.Effect"/> names it).</summary>
+        EffectCleared,
+        /// <summary>A Turn meter piece filled or drained a meter (<see cref="FightEvent.Amount"/>: + filled, − drained, what really changed).</summary>
+        MeterChanged,
+        /// <summary>The hero's ultimate charge changed (<see cref="FightEvent.Charge"/> is the new value, 0–100).</summary>
+        ChargeChanged,
         /// <summary>An effect landed on a hero (<see cref="FightEvent.Effect"/> names it). Also when it only reset a copy the hero had.</summary>
         EffectApplied,
         /// <summary>A Ward stopped a bad effect (<see cref="FightEvent.Effect"/> is the one that was stopped).</summary>
@@ -63,8 +72,14 @@ namespace HeroHQ.Rules
         /// <summary>SkillUsed: which button. Null otherwise.</summary>
         public Button? Button { get; internal set; }
 
-        /// <summary>Damaged: the damage number of this hit (what the screen shows), the Barrier's share included.</summary>
+        /// <summary>
+        /// Damaged: the damage number of this hit (what the screen shows), the Barrier's share included.
+        /// Healed: the Health given back. MeterChanged: the change to the meter, negative for a drain.
+        /// </summary>
         public int Amount { get; internal set; }
+
+        /// <summary>ChargeChanged: the hero's charge after the change (fractions kept; the screen shows whole numbers).</summary>
+        public double Charge { get; internal set; }
 
         /// <summary>Damaged: how much of <see cref="Amount"/> the Barrier soaked; the rest came off Health.</summary>
         public int Soaked { get; internal set; }
@@ -88,6 +103,8 @@ namespace HeroHQ.Rules
                 if (Crit) details.Add("crit");
                 if (Soaked > 0) details.Add($"{Soaked} soaked");
             }
+            if (Kind == FightEventKind.Healed || Kind == FightEventKind.MeterChanged) details.Add(Amount.ToString());
+            if (Kind == FightEventKind.ChargeChanged) details.Add(Charge.ToString("0.###", CultureInfo.InvariantCulture));
             return details.Count == 0 ? text : $"{text} ({string.Join(", ", details)})";
         }
     }

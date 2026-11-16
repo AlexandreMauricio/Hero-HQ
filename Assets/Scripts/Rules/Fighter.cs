@@ -19,8 +19,8 @@ namespace HeroHQ.Rules
     }
 
     /// <summary>
-    /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; the "acted
-    /// yet" flags are added by the tasks that use them (P1-10 onward).
+    /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; later tasks
+    /// add the fields they need.
     /// </summary>
     public class Fighter
     {
@@ -65,11 +65,20 @@ namespace HeroHQ.Rules
         public int CritChance { get; set; }
         public int CritDamage { get; set; }
 
-        /// <summary>Ultimate charge from 0 to 100, fractions kept (02 GDD 4). The Ultimate is usable at 100. P1-10 fills it.</summary>
+        /// <summary>Ultimate charge from 0 to 100, fractions kept (02 GDD 4). The Ultimate is usable at 100.</summary>
         public double Charge { get; set; }
 
-        /// <summary>The hero's own turns before the Special is ready again; 0 = ready (every Special starts ready, 02 GDD 4). P1-10 sets it.</summary>
+        /// <summary>
+        /// The hero's own turns before the Special is ready again; 0 = ready (every Special starts ready, 02 GDD 4).
+        /// Set to the Special's cooldown after it is used; counts down at the end of each later turn of the hero.
+        /// </summary>
         public int Cooldown { get; set; }
+
+        /// <summary>The hero has taken a turn this fight (used a button). A skipped, stunned turn and a counter-attack are not acting (02 GDD 10.6 q. 4).</summary>
+        public bool Acted { get; set; }
+
+        /// <summary>The hero has used a skill aimed at an enemy this fight, hit or miss (reading R4): "first attack" is over.</summary>
+        public bool Attacked { get; set; }
 
         /// <summary>A knocked-out hero is out of the turn order and never fills.</summary>
         public bool KnockedOut { get; set; }

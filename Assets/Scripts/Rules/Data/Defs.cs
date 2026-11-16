@@ -50,7 +50,7 @@ namespace HeroHQ.Rules.Data
         [JsonProperty("power")] public double? Power { get; private set; }
         /// <summary>Damage: number of hits.</summary>
         [JsonProperty("hits")] public int? Hits { get; private set; }
-        /// <summary>Heal: % of max Health. Meter: % of a full bar, negative drains.</summary>
+        /// <summary>Heal: % of max Health. Meter: % of a full bar, negative drains. Barrier effect: its size, % of the holder's max Health.</summary>
         [JsonProperty("percent")] public double? Percent { get; private set; }
         /// <summary>Effect: which effect.</summary>
         [JsonProperty("effect")] public string Effect { get; private set; }

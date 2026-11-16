@@ -363,7 +363,9 @@ namespace HeroHQ.Tests
 
             Assert.AreEqual(2, Of(events, FightEventKind.Damaged).Count, "182, then 118 left: the second hit knocks out, the third never comes");
             Assert.AreEqual(1, Of(events, FightEventKind.KnockedOut).Count);
-            Assert.AreEqual(FightEventKind.KnockedOut, events.Last().Kind, "and nothing after it");
+            var knockout = events.ToList().FindIndex(e => e.Kind == FightEventKind.KnockedOut);
+            CollectionAssert.AreEqual(new[] { FightEventKind.ChargeChanged }, events.Skip(knockout + 1).Select(e => e.Kind),
+                "nothing after it but the attacker's Basic charge (P1-10)");
         }
 
         // ---- Options: the three buttons -----------------------------------------------------------------

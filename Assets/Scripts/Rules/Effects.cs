@@ -137,6 +137,22 @@ namespace HeroHQ.Rules
         }
 
         /// <summary>
+        /// A Clear piece (02 GDD 7.1): takes up to <paramref name="count"/> bad effects off the hero, newest first
+        /// (null = all of them). Buffs stay.
+        /// </summary>
+        public static IReadOnlyList<FightEvent> Clear(Fighter fighter, int? count)
+        {
+            var events = new List<FightEvent>();
+            var bad = fighter.EffectList.Where(e => IsBad(e.Kind)).Reverse().Take(count ?? int.MaxValue).ToList();
+            foreach (var effect in bad)
+            {
+                fighter.EffectList.Remove(effect);
+                events.Add(new FightEvent(FightEventKind.EffectCleared, fighter, effect.Kind));
+            }
+            return events;
+        }
+
+        /// <summary>
         /// A Barrier soaks a hit before Health does (02 GDD 6 and 7.4): it takes as much of <paramref name="damage"/>
         /// as it still holds and gives back how much that was. Emptied, it is used up (its event comes back);
         /// otherwise it keeps the rest. No Barrier soaks nothing.

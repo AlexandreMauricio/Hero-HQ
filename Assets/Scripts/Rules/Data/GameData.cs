@@ -252,6 +252,8 @@ namespace HeroHQ.Rules.Data
                         if (!In(Effects, piece.Effect)) Add(where, field + ".effect", Bad("effect", piece.Effect));
                         else if (piece.Turns == null && !In(EffectsWithoutTurns, piece.Effect))
                             Add(where, field + ".turns", "missing");
+                        // a Barrier's size: percent of the holder's max Health (02 GDD 7.4, reading R9)
+                        if (piece.Effect == "barrier" && piece.Percent == null) Add(where, field + ".percent", "missing");
                         break;
                     // clear: how many is optional, left out means all (02 GDD 7.1)
                 }
