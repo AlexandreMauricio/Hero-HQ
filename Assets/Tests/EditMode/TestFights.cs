@@ -19,15 +19,16 @@ namespace HeroHQ.Tests
 
         /// <summary>
         /// A fight between two teams of five test heroes, given as (id, Speed) in slot order. Both teams stand
-        /// 3–2 with their first hero as leader.
+        /// 3–2 (unless a formation is given) with their first hero as leader.
         /// </summary>
-        public static Fight NewFight((string id, int speed)[] players, (string id, int speed)[] enemies, int seed = 1)
+        public static Fight NewFight((string id, int speed)[] players, (string id, int speed)[] enemies, int seed = 1,
+                                     string playerFormation = "3-2", string enemyFormation = "3-2")
         {
             var heroes = TestData.HeroesFile(players.Concat(enemies).Select(h => Hero(h.id, h.speed)).ToArray());
-            string Team(string id, string kind, (string id, int speed)[] five) =>
-                "{ \"id\": \"" + id + "\", \"kind\": \"" + kind + "\", \"formation\": \"3-2\", \"leader\": \"" + five[0].id +
+            string Team(string id, string kind, string formation, (string id, int speed)[] five) =>
+                "{ \"id\": \"" + id + "\", \"kind\": \"" + kind + "\", \"formation\": \"" + formation + "\", \"leader\": \"" + five[0].id +
                 "\", \"slots\": [" + string.Join(",", five.Select(h => "\"" + h.id + "\"")) + "] }";
-            var teams = "[" + Team("players", "target", players) + "," + Team("enemies", "enemy", enemies) + "]";
+            var teams = "[" + Team("players", "target", playerFormation, players) + "," + Team("enemies", "enemy", enemyFormation, enemies) + "]";
 
             var data = TestData.Load(heroes: heroes, teams: teams);
             return Fight.Create(data, data.Teams["players"], data.Teams["enemies"], seed);

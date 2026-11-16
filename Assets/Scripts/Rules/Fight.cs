@@ -105,10 +105,19 @@ namespace HeroHQ.Rules
 
         static List<Fighter> Team(GameData data, TeamDef team, Side side)
         {
+            // "3-2" = three in front, two behind: the first slots stand in the front row (02 GDD 2). The loader
+            // has already checked the formation is one of the four allowed.
+            var inFront = int.Parse(team.Formation.Split('-')[0]);
             return team.Slots.Select((id, slot) =>
             {
                 var hero = data.Heroes[id];
-                return new Fighter(side, slot, Whole(hero.Stats["speed"]), hero) { Health = Whole(hero.Stats["health"]) };
+                var health = Whole(hero.Stats["health"]);
+                return new Fighter(side, slot, Whole(hero.Stats["speed"]), hero)
+                {
+                    Row = slot < inFront ? Row.Front : Row.Back,
+                    Health = health,
+                    MaxHealth = health,
+                };
             }).ToList();
         }
 

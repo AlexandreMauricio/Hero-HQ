@@ -11,6 +11,13 @@ namespace HeroHQ.Rules
         Enemy,
     }
 
+    /// <summary>Which row a hero stands in (02 GDD 2, Formation). Fixed for the whole fight.</summary>
+    public enum Row
+    {
+        Front,
+        Back,
+    }
+
     /// <summary>
     /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; ultimate
     /// charge, Special cooldown and the "acted yet" flags are added by the tasks that use them (P1-09 onward).
@@ -39,8 +46,14 @@ namespace HeroHQ.Rules
         /// <summary>The turn meter. A whole number; a bar from 0 to <c>meter_full</c>, and above it the overflow is kept.</summary>
         public int Meter { get; set; }
 
+        /// <summary>The row from the team's formation: the first slots stand in front (P1-08). Never changes during a fight.</summary>
+        public Row Row { get; set; }
+
         /// <summary>Health now, a whole number. Starts at the hero's final Health.</summary>
         public int Health { get; set; }
+
+        /// <summary>The hero's final Health at fight start (the most Health they can have). "Most hurt ally" compares Health as a % of this.</summary>
+        public int MaxHealth { get; set; }
 
         /// <summary>A knocked-out hero is out of the turn order and never fills.</summary>
         public bool KnockedOut { get; set; }
