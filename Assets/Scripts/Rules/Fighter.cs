@@ -19,8 +19,8 @@ namespace HeroHQ.Rules
     }
 
     /// <summary>
-    /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; ultimate
-    /// charge, Special cooldown and the "acted yet" flags are added by the tasks that use them (P1-09 onward).
+    /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; the "acted
+    /// yet" flags are added by the tasks that use them (P1-10 onward).
     /// </summary>
     public class Fighter
     {
@@ -54,6 +54,22 @@ namespace HeroHQ.Rules
 
         /// <summary>The hero's final Health at fight start (the most Health they can have). "Most hurt ally" compares Health as a % of this.</summary>
         public int MaxHealth { get; set; }
+
+        // The final stats the skills use (P1-09), whole numbers set by Fight.Create from the data (bonuses: P1-12).
+        // Chance stats are percentages as written (25 = 25 %); Crit Damage 150 = 1.5 times.
+
+        public int Damage { get; set; }
+        public int Armor { get; set; }
+        public int Accuracy { get; set; }
+        public int DodgeChance { get; set; }
+        public int CritChance { get; set; }
+        public int CritDamage { get; set; }
+
+        /// <summary>Ultimate charge from 0 to 100, fractions kept (02 GDD 4). The Ultimate is usable at 100. P1-10 fills it.</summary>
+        public double Charge { get; set; }
+
+        /// <summary>The hero's own turns before the Special is ready again; 0 = ready (every Special starts ready, 02 GDD 4). P1-10 sets it.</summary>
+        public int Cooldown { get; set; }
 
         /// <summary>A knocked-out hero is out of the turn order and never fills.</summary>
         public bool KnockedOut { get; set; }

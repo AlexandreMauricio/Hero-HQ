@@ -58,8 +58,9 @@ namespace HeroHQ.Rules
     ///   bar = fight.PredictTurns(turn_bar_length)      // after any call, to draw the turn bar
     ///
     /// Nothing here waits or draws: every call returns the list of what happened and the screen plays it back.
-    /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07). The skill
-    /// itself does nothing yet (P1-09); bonuses (P1-12) and triggers (P1-13) come with their tasks.
+    /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07), the
+    /// buttons and Damage pieces (P1-09, SkillResolver); the other pieces (P1-10), bonuses (P1-12) and
+    /// triggers (P1-13) come with their tasks.
     /// </summary>
     public class Fight
     {
@@ -111,12 +112,18 @@ namespace HeroHQ.Rules
             return team.Slots.Select((id, slot) =>
             {
                 var hero = data.Heroes[id];
-                var health = Whole(hero.Stats["health"]);
-                return new Fighter(side, slot, Whole(hero.Stats["speed"]), hero)
+                int Stat(string name) => Whole(hero.Stats[name]);
+                return new Fighter(side, slot, Stat("speed"), hero)
                 {
                     Row = slot < inFront ? Row.Front : Row.Back,
-                    Health = health,
-                    MaxHealth = health,
+                    Health = Stat("health"),
+                    MaxHealth = Stat("health"),
+                    Damage = Stat("damage"),
+                    Armor = Stat("armor"),
+                    Accuracy = Stat("accuracy"),
+                    DodgeChance = Stat("dodge_chance"),
+                    CritChance = Stat("crit_chance"),
+                    CritDamage = Stat("crit_damage"),
                 };
             }).ToList();
         }
@@ -149,16 +156,32 @@ namespace HeroHQ.Rules
         }
 
         /// <summary>
+        /// The acting hero's three buttons, Basic, Special, Ultimate (03 Architecture 4.3): usable or not, who
+        /// may be tapped, and each enemy's miss chance to show before the tap. Empty while nobody is choosing.
+        /// </summary>
+        public IReadOnlyList<ButtonOption> Options =>
+            Acting == null
+                ? new ButtonOption[0]
+                : new[] { Button.Basic, Button.Special, Button.Ultimate }.Select(b => SkillResolver.Option(this, Acting, b)).ToList();
+
+        /// <summary>
         /// 02 GDD 2, steps 4–6: does the acting hero's choice, ends their turn (the meter drops by one full bar
-        /// and keeps the overflow) and checks for a win. The skill itself does nothing yet (P1-09).
+        /// and keeps the overflow) and checks for a win. A choice <see cref="Options"/> doesn't allow (a button
+        /// that can't be pressed, a hero who can't be chosen) is an error and changes nothing; a skill that needs
+        /// no choice ignores the tapped hero.
         /// </summary>
         public IReadOnlyList<FightEvent> Act(Choice choice)
         {
             if (Outcome != Outcome.Going) throw new InvalidOperationException("The fight is over.");
             if (Acting == null) throw new InvalidOperationException("Nobody is choosing: call AdvanceToChoice first.");
+            var option = SkillResolver.Option(this, Acting, choice.Button);
+            if (!option.Usable) throw new ArgumentException($"{Acting}'s {choice.Button} can't be used now.", nameof(choice));
+            if (option.NeedsChoice && !option.Choosable.Contains(choice.Target))
+                throw new ArgumentException($"{Acting}'s {choice.Button} can't choose {choice.Target?.ToString() ?? "nobody"}.", nameof(choice));
             var events = new List<FightEvent>();
 
-            // step 4, the skill: P1-09
+            // step 4, the skill (P1-09: Damage pieces; the rest with P1-10 and P1-11)
+            events.AddRange(SkillResolver.Use(this, Acting, choice.Button, option.NeedsChoice ? choice.Target : null));
 
             // step 5 and 6, end of turn and win check
             events.AddRange(EndTurn());
@@ -235,7 +258,7 @@ namespace HeroHQ.Rules
 
         /// <summary>
         /// One roll of the fight's luck: true with a chance of <paramref name="percent"/> % (0 never, 100 always).
-        /// Only hit and crit roll (02 GDD 2), from the skill code (P1-09). A copy has no generator and throws.
+        /// Only hit and crit roll (02 GDD 2), from SkillResolver. A copy has no generator and throws.
         /// </summary>
         public bool Roll(double percent)
         {

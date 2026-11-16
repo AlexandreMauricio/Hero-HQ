@@ -137,6 +137,20 @@ namespace HeroHQ.Rules
         }
 
         /// <summary>
+        /// A Barrier soaks a hit before Health does (02 GDD 6 and 7.4): it takes as much of <paramref name="damage"/>
+        /// as it still holds and gives back how much that was. Emptied, it is used up (its event comes back);
+        /// otherwise it keeps the rest. No Barrier soaks nothing.
+        /// </summary>
+        public static IReadOnlyList<FightEvent> Soak(Fighter fighter, int damage, out int soaked)
+        {
+            var barrier = fighter.EffectList.FirstOrDefault(e => e.Kind == "barrier");
+            soaked = barrier == null ? 0 : Math.Min(barrier.Amount, damage);
+            if (barrier == null) return new FightEvent[0];
+            barrier.Amount -= soaked;
+            return barrier.Amount == 0 ? UseUp(fighter, "barrier") : new FightEvent[0];
+        }
+
+        /// <summary>
         /// A knocked-out hero loses all effects (02 GDD 2). Silent: the knockout event (P1-09) tells the story.
         /// </summary>
         public static void LoseAll(Fighter fighter) => fighter.EffectList.Clear();

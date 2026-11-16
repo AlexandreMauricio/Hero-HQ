@@ -8,7 +8,7 @@ using static HeroHQ.Tests.TestFights;
 namespace HeroHQ.Tests
 {
     // P1-06 (03 Architecture 4.12): the fight's clock. Create, AdvanceToChoice, Act (end of turn and the win
-    // check; the skill itself does nothing until P1-09), Copy and PredictTurns. 02 GDD 11 tests 3 and 4.
+    // check; the skill itself is P1-09's, see SkillDamageTests), Copy and PredictTurns. 02 GDD 11 tests 3 and 4.
     //
     // The test heroes have a huge Health so nobody is knocked out once Basics really hit (P1-09): test 3 then
     // keeps proving the bar against real Basics, as 02 GDD 11 asks ("every hero only uses Basic").
@@ -97,7 +97,8 @@ namespace HeroHQ.Tests
 
             Assert.AreEqual(80, hero.Meter, "1080 - 1000: the overflow is kept (02 GDD 3)");
             Assert.IsNull(fight.Acting);
-            CollectionAssert.IsEmpty(events, "skills do nothing yet (P1-09) and nobody won");
+            Assert.AreEqual(FightEventKind.SkillUsed, events[0].Kind, "the skill comes first (P1-09)");
+            Assert.IsFalse(events.Any(e => e.Kind == FightEventKind.FightWon || e.Kind == FightEventKind.FightLost), "nobody won");
 
             // the next turn is the other Speed-120 hero, still full from the same tick
             fight.AdvanceToChoice();
@@ -221,9 +222,9 @@ namespace HeroHQ.Tests
                 f.Health -= 1;
                 f.KnockedOut = true;
             }
-            copy.Enemies[0].KnockedOut = false;     // so the copy can still play a turn
-            copy.Act(new Choice(Button.Basic, copy.Enemies[0]));
-            copy.AdvanceToChoice();
+            copy.Players[0].KnockedOut = false;     // someone e3 (acting) can aim at
+            // a skill rolls for hit, and a copy can't roll (4.2): playing a turn on a copy is an error
+            Assert.Throws<InvalidOperationException>(() => copy.Act(Basic(copy)));
 
             Assert.AreSame(acting, fight.Acting);
             Assert.AreEqual(Outcome.Going, fight.Outcome);
@@ -261,28 +262,37 @@ namespace HeroHQ.Tests
 
         // ---- the win check (02 GDD 2, step 6) -----------------------------------------------------------
 
+        /// <summary>Leaves one hero of <paramref name="side"/> standing, with 1 Health: the next Basic on them knocks them out.</summary>
+        static void LastOneOnOneHealth(IReadOnlyList<Fighter> side)
+        {
+            foreach (var f in side.Skip(1)) f.KnockedOut = true;
+            side[0].Health = 1;
+        }
+
         [Test]
         public void WinCheck_AllFiveEnemiesDown_IsAWin_AtTheEndOfTheTurn()
         {
             var fight = MixedFight();
-            fight.AdvanceToChoice();
-            foreach (var enemy in fight.Enemies) enemy.KnockedOut = true;
-            Assert.AreEqual(Outcome.Going, fight.Outcome, "checked at the end of the turn, not before");
+            fight.AdvanceToChoice();                  // p1, yours
+            LastOneOnOneHealth(fight.Enemies);
 
-            var events = fight.Act(new Choice(Button.Basic, fight.Enemies[0]));
+            var events = fight.Act(Basic(fight));
 
             Assert.AreEqual(Outcome.Won, fight.Outcome);
             Assert.AreEqual(FightEventKind.FightWon, events.Last().Kind);
+            var knockout = events.ToList().FindIndex(e => e.Kind == FightEventKind.KnockedOut);
+            Assert.Less(knockout, events.Count - 1, "the knockout happens in the skill; the win is checked at the end of the turn");
         }
 
         [Test]
         public void WinCheck_AllFiveOfYoursDown_IsALoss()
         {
             var fight = MixedFight();
-            fight.AdvanceToChoice();
-            foreach (var hero in fight.Players) hero.KnockedOut = true;
+            PlayOneTurn(fight);
+            fight.AdvanceToChoice();                  // e3, the enemy's
+            LastOneOnOneHealth(fight.Players);
 
-            var events = fight.Act(new Choice(Button.Basic, fight.Enemies[0]));
+            var events = fight.Act(Basic(fight));
 
             Assert.AreEqual(Outcome.Lost, fight.Outcome);
             Assert.AreEqual(FightEventKind.FightLost, events.Last().Kind);
@@ -298,7 +308,7 @@ namespace HeroHQ.Tests
             var events = fight.Act(Basic(fight));
 
             Assert.AreEqual(Outcome.Going, fight.Outcome);
-            CollectionAssert.IsEmpty(events);
+            Assert.IsFalse(events.Any(e => e.Kind == FightEventKind.FightWon || e.Kind == FightEventKind.FightLost));
         }
 
         [Test]
@@ -306,8 +316,8 @@ namespace HeroHQ.Tests
         {
             var fight = MixedFight();
             fight.AdvanceToChoice();
-            foreach (var enemy in fight.Enemies) enemy.KnockedOut = true;
-            fight.Act(new Choice(Button.Basic, fight.Enemies[0]));
+            LastOneOnOneHealth(fight.Enemies);
+            fight.Act(Basic(fight));
 
             // 03 Architecture 4.3's loop calls AdvanceToChoice once more after the winning Act
             CollectionAssert.IsEmpty(fight.AdvanceToChoice());
