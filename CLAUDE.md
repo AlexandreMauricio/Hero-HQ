@@ -44,4 +44,4 @@ Starts Unity with no window, runs every EditMode test, prints `N tests: P passed
 
 ## Git
 
-Own repository, **no remote** until the owner says. Commit only when the owner asks. Never commit `Library/`, `Temp/`, `Logs/`, `UserSettings/`, builds or test results (`.gitignore`).
+Own repository, **no remote** until the owner says. Commit only when the owner asks. **Standing permission (owner, 2026-11-16):** during phase 1, commit after each finished task of 03 Architecture 4.12 once `tools/test.sh` passes, one commit per task, named after the task (e.g. `P1-01: Rules assembly and data classes`). Never commit `Library/`, `Temp/`, `Logs/`, `UserSettings/`, builds or test results (`.gitignore`).
