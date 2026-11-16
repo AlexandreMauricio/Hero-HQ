@@ -1,3 +1,5 @@
+using HeroHQ.Rules.Data;
+
 namespace HeroHQ.Rules
 {
     /// <summary>Which team a fighter is on. The player's side wins a tie (02 GDD 3, tie step 3).</summary>
@@ -8,18 +10,22 @@ namespace HeroHQ.Rules
     }
 
     /// <summary>
-    /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; Health,
-    /// ultimate charge, Special cooldown, effects and the "acted yet" flags are added by the tasks that
-    /// use them (P1-06 onward).
+    /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; ultimate
+    /// charge, Special cooldown, effects and the "acted yet" flags are added by the tasks that use them
+    /// (P1-07 onward).
     /// </summary>
     public class Fighter
     {
-        public Fighter(Side side, int slot, int speed)
+        public Fighter(Side side, int slot, int speed, HeroDef hero = null)
         {
             Side = side;
             Slot = slot;
             Speed = speed;
+            Hero = hero;
         }
+
+        /// <summary>The hero's data (read-only, shared with every copy of the fight). Null only in bare turn-meter tests.</summary>
+        public HeroDef Hero { get; }
 
         public Side Side { get; }
 
@@ -32,7 +38,19 @@ namespace HeroHQ.Rules
         /// <summary>The turn meter. A whole number; a bar from 0 to <c>meter_full</c>, and above it the overflow is kept.</summary>
         public int Meter { get; set; }
 
+        /// <summary>Health now, a whole number. Starts at the hero's final Health.</summary>
+        public int Health { get; set; }
+
         /// <summary>A knocked-out hero is out of the turn order and never fills.</summary>
         public bool KnockedOut { get; set; }
+
+        /// <summary>
+        /// A full, independent duplicate for <see cref="Fight.Copy"/>. Every field here is a number, a flag or
+        /// read-only data, so copying the fields is enough. A task that adds a list (effects, P1-07) must copy
+        /// that list here too, or the copy and the fight would share it.
+        /// </summary>
+        public Fighter Copy() => (Fighter)MemberwiseClone();
+
+        public override string ToString() => $"{Side} {Slot} {Hero?.Id}";
     }
 }
