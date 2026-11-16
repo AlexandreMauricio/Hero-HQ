@@ -1,5 +1,8 @@
+using System;
 using System.Linq;
 using HeroHQ.Rules.Data;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace HeroHQ.Tests
 {
@@ -30,13 +33,25 @@ namespace HeroHQ.Tests
   { ""id"": ""god"",     ""name"": ""God"",     ""kind"": ""origin"" }
 ]";
 
-        /// <summary>Names from 02 GDD 10 with round test values.</summary>
+        /// <summary>The eleven names of 02 GDD 10.2 (the loader asks for all of them) with round test values.</summary>
+        public static readonly string[] TuningNames =
+        {
+            "meter_full", "turn_bar_length", "charge_basic", "charge_special", "charge_per_hurt", "max_dodge",
+            "armor_k", "offense_change", "defense_change", "momentum_step", "momentum_max",
+        };
+
         public const string Tuning = @"{
   ""meter_full"": 1000,
+  ""turn_bar_length"": 8,
   ""charge_basic"": 25,
   ""charge_special"": 10,
+  ""charge_per_hurt"": 1,
+  ""max_dodge"": 30,
   ""armor_k"": 1000,
-  ""max_dodge"": 30
+  ""offense_change"": 25,
+  ""defense_change"": 25,
+  ""momentum_step"": 8,
+  ""momentum_max"": 5
 }";
 
         /// <summary>Two teams in the shape of 03 Architecture 3.2: an enemy crew and a target team.</summary>
@@ -79,6 +94,27 @@ namespace HeroHQ.Tests
             Hero("vex", cls: "striker", side: "villain", pantheon: "greek", origin: "god", speed: 120),
             Hero("orla", cls: "vanguard", side: "villain", pantheon: "norse", origin: "human", speed: 90),
             Hero("dax", cls: "caster", side: "hero", pantheon: "greek", origin: "human", speed: 80));
+
+        // --- P1-03: edit one record of a valid file, so a test breaks exactly one thing --------------------
+
+        /// <summary>A file's text (a list of records with ids) with one record changed.</summary>
+        public static string Edit(string fileText, string id, Action<JObject> change)
+        {
+            var list = JArray.Parse(fileText);
+            change((JObject)list.First(r => (string)r["id"] == id));
+            return list.ToString(Formatting.None);
+        }
+
+        /// <summary>The standard heroes with one hero changed.</summary>
+        public static string HeroesWith(string id, Action<JObject> change) => Edit(ValidHeroes(), id, change);
+
+        /// <summary>tuning.json without one value.</summary>
+        public static string TuningWithout(string name)
+        {
+            var tuning = JObject.Parse(Tuning);
+            tuning.Remove(name);
+            return tuning.ToString(Formatting.None);
+        }
 
         /// <summary>
         /// Loads a data set. Anything not passed is the valid default, so a test names only what it breaks.

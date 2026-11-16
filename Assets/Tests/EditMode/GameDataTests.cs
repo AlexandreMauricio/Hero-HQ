@@ -53,7 +53,7 @@ namespace HeroHQ.Tests
             Assert.AreEqual("target", data.Teams["test_target"].Kind);
             Assert.AreEqual("3-2", data.Teams["test_target"].Formation);
 
-            Assert.AreEqual(5, data.Tuning.Count);
+            Assert.AreEqual(TestData.TuningNames.Length, data.Tuning.Count);
             Assert.AreEqual(1000, data.Tuning["meter_full"]);
             Assert.AreEqual(25, data.Tuning["charge_basic"]);
             Assert.AreEqual(10, data.Tuning["charge_special"]);
