@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using HeroHQ.Rules;
-using HeroHQ.Rules.Data;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using static HeroHQ.Tests.TestFights;
 
 namespace HeroHQ.Tests
 {
@@ -19,43 +17,15 @@ namespace HeroHQ.Tests
         const int Full = 1000;       // meter_full in TestData.Tuning
         const int BarLength = 8;     // turn_bar_length in TestData.Tuning
 
-        // ---- set-up helpers -----------------------------------------------------------------------------
-
-        /// <summary>A valid test hero with a chosen Speed and a huge Health.</summary>
-        static string Hero(string id, int speed)
-        {
-            var hero = JObject.Parse(TestData.Hero(id, speed: speed));
-            hero["stats"]["health"] = 1000000;
-            return hero.ToString(Formatting.None);
-        }
-
-        /// <summary>
-        /// A fight between two teams of five test heroes, given as (id, Speed) in slot order. Both teams stand
-        /// 3–2 with their first hero as leader.
-        /// </summary>
-        static Fight NewFight((string id, int speed)[] players, (string id, int speed)[] enemies, int seed = 1)
-        {
-            var heroes = TestData.HeroesFile(players.Concat(enemies).Select(h => Hero(h.id, h.speed)).ToArray());
-            string Team(string id, string kind, (string id, int speed)[] five) =>
-                "{ \"id\": \"" + id + "\", \"kind\": \"" + kind + "\", \"formation\": \"3-2\", \"leader\": \"" + five[0].id +
-                "\", \"slots\": [" + string.Join(",", five.Select(h => "\"" + h.id + "\"")) + "] }";
-            var teams = "[" + Team("players", "target", players) + "," + Team("enemies", "enemy", enemies) + "]";
-
-            var data = TestData.Load(heroes: heroes, teams: teams);
-            return Fight.Create(data, data.Teams["players"], data.Teams["enemies"], seed);
-        }
+        // ---- set-up helpers (NewFight and Basic are shared, see TestFights) --------------------------------
 
         /// <summary>Speeds with ties inside a side and across sides, so the tie rule is used along the way.</summary>
         static Fight MixedFight() => NewFight(
             new[] { ("p0", 100), ("p1", 120), ("p2", 90), ("p3", 100), ("p4", 75) },
             new[] { ("e0", 100), ("e1", 110), ("e2", 60), ("e3", 120), ("e4", 95) });
 
-        /// <summary>The acting hero's Basic, aimed at the first standing opponent (a front-row hero while one stands).</summary>
-        static Choice Basic(Fight fight)
-        {
-            var opponents = fight.Acting.Side == Side.Player ? fight.Enemies : fight.Players;
-            return new Choice(Button.Basic, opponents.First(f => !f.KnockedOut));
-        }
+        /// <summary>The fighters of a predicted bar, without the skipped marks (those are tested in EffectsTests).</summary>
+        static IReadOnlyList<Fighter> Who(IReadOnlyList<PredictedTurn> bar) => bar.Select(t => t.Who).ToList();
 
         /// <summary>One whole turn: run the clock to the next hero, who uses Basic. Returns who acted.</summary>
         static Fighter PlayOneTurn(Fight fight)
@@ -154,7 +124,7 @@ namespace HeroHQ.Tests
             for (var t = 0; t < turns; t++)
             {
                 fight.AdvanceToChoice();
-                predicted.Add(fight.PredictTurns(BarLength));     // asked while the hero chooses, as the screen does
+                predicted.Add(Who(fight.PredictTurns(BarLength)));     // asked while the hero chooses, as the screen does
                 happened.Add(fight.Acting);
                 fight.Act(Basic(fight));
             }
@@ -169,7 +139,7 @@ namespace HeroHQ.Tests
         public void PredictTurns_BeforeTheFirstTurn_IsTheFirstTurns()
         {
             var fight = MixedFight();
-            var bar = fight.PredictTurns(BarLength);
+            var bar = Who(fight.PredictTurns(BarLength));
 
             var happened = Enumerable.Range(0, BarLength).Select(_ => PlayOneTurn(fight));
             CollectionAssert.AreEqual(happened, bar);
@@ -197,7 +167,7 @@ namespace HeroHQ.Tests
             var down = fight.Players[1];          // the fastest player hero
             down.KnockedOut = true;
 
-            var bar = fight.PredictTurns(20);
+            var bar = Who(fight.PredictTurns(20));
 
             Assert.AreEqual(20, bar.Count);
             CollectionAssert.DoesNotContain(bar, down, "02 GDD 2: a knocked-out hero leaves the turn bar");
@@ -216,7 +186,7 @@ namespace HeroHQ.Tests
             var skipjack = fight.Players[0];
             var halvard = fight.Players[1];
 
-            var bar = fight.PredictTurns(BarLength);
+            var bar = Who(fight.PredictTurns(BarLength));
 
             Assert.AreSame(skipjack, bar[0], "tick 9: Skipjack at 1080");
             Assert.AreSame(skipjack, bar[1], "tick 17: Skipjack at 1040 is fuller than Halvard at 1020");

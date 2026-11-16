@@ -34,6 +34,19 @@ namespace HeroHQ.Rules
         public Fighter Target { get; }
     }
 
+    /// <summary>One entry of the turn-order bar: whose turn, and whether it will be skipped because they are stunned.</summary>
+    public readonly struct PredictedTurn
+    {
+        public PredictedTurn(Fighter who, bool skipped)
+        {
+            Who = who;
+            Skipped = skipped;
+        }
+
+        public Fighter Who { get; }
+        public bool Skipped { get; }
+    }
+
     /// <summary>
     /// One fight (03 Architecture 4.2–4.4). The screens call it in this loop (4.3):
     ///
@@ -45,8 +58,8 @@ namespace HeroHQ.Rules
     ///   bar = fight.PredictTurns(turn_bar_length)      // after any call, to draw the turn bar
     ///
     /// Nothing here waits or draws: every call returns the list of what happened and the screen plays it back.
-    /// Built so far (P1-06): the clock, the end of a turn and the win check. The skill itself does nothing yet
-    /// (P1-09); bonuses (P1-12), effects and Stun (P1-07) and triggers (P1-13) come with their tasks.
+    /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07). The skill
+    /// itself does nothing yet (P1-09); bonuses (P1-12) and triggers (P1-13) come with their tasks.
     /// </summary>
     public class Fight
     {
@@ -101,17 +114,28 @@ namespace HeroHQ.Rules
 
         /// <summary>
         /// 02 GDD 2, steps 1–2: runs the clock (ticks) until someone's meter is full; the tie rule picks who
-        /// acts, and that hero is now <see cref="Acting"/> and must choose. Does nothing while a hero is already
-        /// choosing or once the fight is over.
+        /// acts, and that hero is now <see cref="Acting"/> and must choose. A stunned hero's turn is skipped
+        /// right here (the Stun is used up, the turn ends like any other) and the clock carries on to the next.
+        /// Does nothing while a hero is already choosing or once the fight is over.
         /// </summary>
         public IReadOnlyList<FightEvent> AdvanceToChoice()
         {
             var events = new List<FightEvent>();
             if (Outcome != Outcome.Going || Acting != null) return events;
 
-            while ((Acting = TurnMeter.Next(all, meterFull)) == null)
-                TurnMeter.Tick(all);
-            events.Add(new FightEvent(FightEventKind.TurnStarted, Acting));
+            while (Outcome == Outcome.Going)
+            {
+                while ((Acting = TurnMeter.Next(all, meterFull)) == null)
+                    TurnMeter.Tick(all);
+                Acting.TurnsStarted++;
+                events.Add(new FightEvent(FightEventKind.TurnStarted, Acting));
+                if (!Effects.IsStunned(Acting)) break;
+
+                // start-of-turn passives fire here even when stunned (P1-13), then the turn is skipped
+                events.Add(new FightEvent(FightEventKind.TurnSkipped, Acting));
+                events.AddRange(Effects.UseUp(Acting, "stun"));
+                events.AddRange(EndTurn());
+            }
             return events;
         }
 
@@ -127,12 +151,23 @@ namespace HeroHQ.Rules
 
             // step 4, the skill: P1-09
 
-            // step 5, end of turn
+            // step 5 and 6, end of turn and win check
+            events.AddRange(EndTurn());
+            return events;
+        }
+
+        /// <summary>
+        /// 02 GDD 2, steps 5–6, shared by a played turn and a skipped one: the acting hero's meter drops by one
+        /// full bar (keeping the overflow), their effects count down, then the win check. Both sides can't be
+        /// down at once: only one side attacks at a time, and a knocked-out hero can't counter-attack (02 GDD 2).
+        /// </summary>
+        List<FightEvent> EndTurn()
+        {
+            var events = new List<FightEvent>();
             TurnMeter.EndTurn(Acting, meterFull);
+            events.AddRange(Effects.EndTurn(Acting));
             Acting = null;
 
-            // step 6, win check. Both sides can't be down at once: only one side attacks at a time, and a
-            // knocked-out hero can't counter-attack (02 GDD 2).
             if (enemies.All(f => f.KnockedOut))
             {
                 Outcome = Outcome.Won;
@@ -148,14 +183,15 @@ namespace HeroHQ.Rules
 
         /// <summary>
         /// The turn-order bar (02 GDD 3, 03 Architecture 4.4): who acts in the next <paramref name="count"/>
-        /// turns if nobody's action changes the meters. Runs the same clock on a copy with nobody acting, so the
-        /// fight itself never changes. While a hero is choosing, they come first. The fighters returned are this
-        /// fight's own. Exact until the next action; ask again after every <see cref="Act"/>.
+        /// turns if nobody's action changes the meters, each marked <see cref="PredictedTurn.Skipped"/> when that
+        /// hero is stunned (their first turn only: the Stun ends with it). Runs the same clock on a copy with
+        /// nobody acting, so the fight itself never changes. While a hero is choosing, they come first. The
+        /// fighters returned are this fight's own. Exact until the next action; ask again after every <see cref="Act"/>.
         /// </summary>
-        public IReadOnlyList<Fighter> PredictTurns(int count)
+        public IReadOnlyList<PredictedTurn> PredictTurns(int count)
         {
             var copy = Copy();
-            var turns = new List<Fighter>();
+            var turns = new List<PredictedTurn>();
             if (copy.all.All(f => f.KnockedOut)) return turns;
 
             while (turns.Count < count)
@@ -166,7 +202,9 @@ namespace HeroHQ.Rules
                     TurnMeter.Tick(copy.all);
                     continue;
                 }
-                turns.Add(all[copy.all.IndexOf(next)]);
+                var skipped = Effects.IsStunned(next);
+                turns.Add(new PredictedTurn(all[copy.all.IndexOf(next)], skipped));
+                if (skipped) Effects.UseUp(next, "stun");
                 TurnMeter.EndTurn(next, meterFull);
             }
             return turns;

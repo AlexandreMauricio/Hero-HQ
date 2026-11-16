@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using HeroHQ.Rules.Data;
 
 namespace HeroHQ.Rules
@@ -11,8 +13,7 @@ namespace HeroHQ.Rules
 
     /// <summary>
     /// One hero in a fight (03 Architecture 4.1). It holds only what the fight has needed so far; ultimate
-    /// charge, Special cooldown, effects and the "acted yet" flags are added by the tasks that use them
-    /// (P1-07 onward).
+    /// charge, Special cooldown and the "acted yet" flags are added by the tasks that use them (P1-09 onward).
     /// </summary>
     public class Fighter
     {
@@ -45,11 +46,29 @@ namespace HeroHQ.Rules
         public bool KnockedOut { get; set; }
 
         /// <summary>
-        /// A full, independent duplicate for <see cref="Fight.Copy"/>. Every field here is a number, a flag or
-        /// read-only data, so copying the fields is enough. A task that adds a list (effects, P1-07) must copy
-        /// that list here too, or the copy and the fight would share it.
+        /// How many of this hero's own turns have started, a skipped (stunned) turn included. Effect durations
+        /// are counted in these (see <see cref="Effect.EndsAfterTurn"/>).
         /// </summary>
-        public Fighter Copy() => (Fighter)MemberwiseClone();
+        public int TurnsStarted { get; set; }
+
+        List<Effect> effects = new List<Effect>();
+
+        /// <summary>The effects on this hero, in the order they were put on. Only the static Effects class (Effects.cs) changes the list.</summary>
+        public IReadOnlyList<Effect> Effects => effects;
+
+        internal List<Effect> EffectList => effects;
+
+        /// <summary>
+        /// A full, independent duplicate for <see cref="Fight.Copy"/>. The numbers, flags and read-only data are
+        /// copied as they are; the effects list is copied record by record, or the copy and the fight would
+        /// share it. A task that adds another list must copy it here too.
+        /// </summary>
+        public Fighter Copy()
+        {
+            var copy = (Fighter)MemberwiseClone();
+            copy.effects = effects.Select(e => e.Copy()).ToList();
+            return copy;
+        }
 
         public override string ToString() => $"{Side} {Slot} {Hero?.Id}";
     }
