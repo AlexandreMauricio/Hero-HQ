@@ -1,0 +1,11 @@
+[
+  { "id": "hero",     "name": "Hero",     "kind": "side" },
+  { "id": "outlaw",   "name": "Outlaw",   "kind": "side" },
+  { "id": "greek",    "name": "Greek",    "kind": "pantheon", "cutin_colors": { "background": "#1b6fd1", "glow": "#ffd23f" } },
+  { "id": "norse",    "name": "Norse",    "kind": "pantheon", "cutin_colors": { "background": "#d7263d", "glow": "#a8e6ff" } },
+  { "id": "egyptian", "name": "Egyptian", "kind": "pantheon", "cutin_colors": { "background": "#10b3a6", "glow": "#f2c14e" } },
+  { "id": "godborn",  "name": "Godborn",  "kind": "origin" },
+  { "id": "sworn",    "name": "Sworn",    "kind": "origin" },
+  { "id": "relic",    "name": "Relic",    "kind": "origin" },
+  { "id": "tech",     "name": "Tech",     "kind": "origin" }
+]

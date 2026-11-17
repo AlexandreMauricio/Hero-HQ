@@ -1,0 +1,128 @@
+[
+  {
+    "id": "skipjack", "name": "Skipjack", "class": "hunter", "traits": ["hero", "greek", "godborn"],
+    "stats": { "health": 2600, "armor": 150, "damage": 515, "speed": 140, "accuracy": 0, "dodge_chance": 10,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 20, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Flying Kick", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },
+    "special":  { "name": "Return to Sender", "cooldown": 1, "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 150 },
+                    { "do": "damage", "target": "enemy", "power": 150, "if": { "test": "target_not_acted" } } ] },
+    "ultimate": { "name": "SPECIAL DELIVERY!", "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 450, "always_crits": true, "reaches_back_row": true } ] },
+    "leader":   { "triggers": [
+                    { "when": "fight_start", "who": { "trait": "greek" },
+                      "pieces": [ { "do": "meter", "target": "self", "percent": 50 } ] } ] },
+    "passive":  { "bonuses": [ { "stat": "dodge_chance", "percent": 5, "if": { "test": "per_ally_with", "trait": "greek" } } ] },
+    "cutin":    { "shout": "SPECIAL DELIVERY!" }
+  },
+  {
+    "id": "strix", "name": "Strix", "class": "hunter", "traits": ["outlaw", "greek", "sworn"],
+    "stats": { "health": 2700, "armor": 150, "damage": 515, "speed": 115, "accuracy": 15, "dodge_chance": 5,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 25, "crit_damage": 175, "will": 0, "grit": 0 },
+    "basic":    { "name": "Talon Strike", "pieces": [ { "do": "damage", "target": "enemy", "power": 110 } ] },
+    "special":  { "name": "Mark", "cooldown": 1, "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 80 },
+                    { "do": "effect", "target": "enemy", "effect": "defense_down", "turns": 2 } ] },
+    "ultimate": { "name": "FROM ABOVE.", "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 380, "reaches_back_row": true },
+                    { "do": "damage", "target": "enemy", "power": 200, "if": { "test": "target_has_effect", "effect": "defense_down" } } ] },
+    "leader":   { "bonuses": [ { "stat": "crit_chance", "percent": 20, "who": { "class": "hunter" } } ] },
+    "passive":  { "bonuses": [ { "stat": "crit_chance", "percent": 100, "if": { "test": "first_attack" } } ] },
+    "cutin":    { "shout": "FROM ABOVE." }
+  },
+  {
+    "id": "kal", "name": "Kal & Talos", "class": "caster", "traits": ["outlaw", "greek", "tech"],
+    "stats": { "health": 3000, "armor": 150, "damage": 460, "speed": 90, "accuracy": 0, "dodge_chance": 0,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 10, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Forge Fist", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },
+    "special":  { "name": "Overheat", "cooldown": 1, "pieces": [
+                    { "do": "damage", "target": "enemy_and_neighbours", "power": 70 },
+                    { "do": "effect", "target": "self", "effect": "offense_up", "turns": 1 } ] },
+    "ultimate": { "name": "TALOS, WAKE UP!", "pieces": [ { "do": "damage", "target": "all_enemies", "power": 200 } ] },
+    "leader":   { "bonuses": [ { "stat": "damage", "percent": 20, "who": { "trait": "tech" } } ] },
+    "passive":  { "bonuses": [ { "stat": "damage", "percent": 20, "if": { "test": "per_ally_with", "trait": "tech" } } ] },
+    "cutin":    { "shout": "TALOS, WAKE UP!", "drawing": "kal", "behind": "kal_behind" }
+  },
+  {
+    "id": "halvard", "name": "Halvard", "class": "vanguard", "traits": ["hero", "norse", "godborn"],
+    "stats": { "health": 5000, "armor": 500, "damage": 300, "speed": 70, "accuracy": 0, "dodge_chance": 0,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 5, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Shield Bash", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },
+    "special":  { "name": "Shield Wall", "cooldown": 1, "pieces": [
+                    { "do": "effect", "target": "self", "effect": "taunt", "turns": 1 },
+                    { "do": "effect", "target": "self", "effect": "defense_up", "turns": 1 } ] },
+    "ultimate": { "name": "I GAVE MY WORD!", "pieces": [
+                    { "do": "effect", "target": "all_allies", "effect": "barrier", "turns": 2, "percent": 25 },
+                    { "do": "effect", "target": "self", "effect": "taunt", "turns": 1 } ] },
+    "leader":   { "bonuses": [
+                    { "stat": "health", "percent": 15, "who": { "trait": "hero" } },
+                    { "stat": "armor", "percent": 15, "who": { "trait": "hero" } } ] },
+    "passive":  { "triggers": [ { "when": "ally_below_half", "pieces": [ { "do": "effect", "target": "self", "effect": "taunt", "turns": 1 } ] } ] },
+    "cutin":    { "shout": "I GAVE MY WORD!" }
+  },
+  {
+    "id": "thordis", "name": "Thordis", "class": "bruiser", "traits": ["outlaw", "norse", "tech"],
+    "stats": { "health": 4200, "armor": 350, "damage": 445, "speed": 85, "accuracy": 10, "dodge_chance": 0,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 10, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Anchor Swing", "pieces": [ { "do": "damage", "target": "enemy", "power": 110 } ] },
+    "special":  { "name": "Haul In", "cooldown": 2, "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 130, "reaches_back_row": true },
+                    { "do": "effect", "target": "enemy", "effect": "stun" } ] },
+    "ultimate": { "name": "STORM'S COMING!", "pieces": [
+                    { "do": "damage", "target": "enemy_and_neighbours", "power": 120 },
+                    { "do": "damage", "target": "enemy", "power": 230 } ] },
+    "leader":   { "bonuses": [ { "stat": "damage", "percent": 20, "who": { "trait": "outlaw" } } ] },
+    "passive":  { "triggers": [ { "when": "attack_hits", "pieces": [ { "do": "effect", "target": "self", "effect": "momentum" } ] } ] },
+    "cutin":    { "shout": "STORM'S COMING!" }
+  },
+  {
+    "id": "ibis", "name": "Ibis", "class": "disruptor", "traits": ["hero", "egyptian", "sworn"],
+    "stats": { "health": 3000, "armor": 200, "damage": 350, "speed": 100, "accuracy": 10, "dodge_chance": 5,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 10, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Glyph Bolt", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },
+    "special":  { "name": "Threshold", "cooldown": 1, "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 60 },
+                    { "do": "meter", "target": "enemy", "percent": -50 } ] },
+    "ultimate": { "name": "BY THE WORD OF THOTH!", "pieces": [
+                    { "do": "damage", "target": "all_enemies", "power": 80 },
+                    { "do": "effect", "target": "all_enemies", "effect": "offense_down", "turns": 2 },
+                    { "do": "meter", "target": "all_enemies", "percent": -30 },
+                    { "do": "effect", "target": "all_allies", "effect": "ward", "turns": 2 } ] },
+    "leader":   { "bonuses": [ { "stat": "armor", "percent": 20, "who": { "trait": "sworn" } } ],
+                  "triggers": [ { "when": "fight_start", "who": { "trait": "sworn" },
+                                  "pieces": [ { "do": "effect", "target": "self", "effect": "ward", "turns": 2 } ] } ] },
+    "passive":  { "triggers": [ { "when": "fight_start", "pieces": [
+                    { "do": "effect", "target": "self", "effect": "ward", "turns": 2 },
+                    { "do": "effect", "target": "most_hurt_ally", "effect": "ward", "turns": 2 } ] } ] },
+    "cutin":    { "shout": "BY THE WORD OF THOTH!" }
+  },
+  {
+    "id": "hori", "name": "Hori", "class": "bruiser", "traits": ["hero", "egyptian", "godborn"],
+    "stats": { "health": 3600, "armor": 250, "damage": 430, "speed": 110, "accuracy": 20, "dodge_chance": 10,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 15, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Palm Strike", "pieces": [ { "do": "damage", "target": "enemy", "power": 55, "hits": 2 } ] },
+    "special":  { "name": "Falcon's Sight", "cooldown": 1, "pieces": [
+                    { "do": "damage", "target": "next_enemy", "power": 150, "cant_miss": true } ] },
+    "ultimate": { "name": "EYE OF HORUS!", "pieces": [
+                    { "do": "damage", "target": "enemy", "power": 70, "hits": 6, "cant_miss": true } ] },
+    "leader":   { "bonuses": [ { "stat": "damage", "percent": 20, "who": { "trait": "egyptian" } } ] },
+    "passive":  { "triggers": [ { "when": "turn_start", "pieces": [ { "do": "effect", "target": "self", "effect": "counter", "turns": 1 } ] } ] },
+    "cutin":    { "shout": "EYE OF HORUS!" }
+  },
+  {
+    "id": "doc_nefer", "name": "Doc Nefer", "class": "mender", "traits": ["outlaw", "egyptian", "relic"],
+    "stats": { "health": 3200, "armor": 200, "damage": 270, "speed": 95, "accuracy": 0, "dodge_chance": 5,
+               "block_chance": 0, "block_amount": 0, "crit_chance": 5, "crit_damage": 150, "will": 0, "grit": 0 },
+    "basic":    { "name": "Prod", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },
+    "special":  { "name": "Patch Job", "cooldown": 1, "pieces": [
+                    { "do": "heal", "target": "ally", "percent": 20 },
+                    { "do": "clear", "target": "ally", "count": 1 } ] },
+    "ultimate": { "name": "NOT ON MY TABLE!", "pieces": [
+                    { "do": "heal", "target": "all_allies", "percent": 30 },
+                    { "do": "clear", "target": "all_allies" } ] },
+    "leader":   { "triggers": [
+                    { "when": "turn_start", "pieces": [ { "do": "heal", "target": "self", "percent": 3 } ] } ] },
+    "passive":  { "bonuses": [ { "stat": "healing", "percent": 20, "if": { "test": "target_has", "trait": "outlaw" } } ] },
+    "cutin":    { "shout": "NOT ON MY TABLE!" }
+  }
+]

@@ -1,0 +1,8 @@
+[
+  { "id": "vanguard",  "name": "Vanguard" },
+  { "id": "bruiser",   "name": "Bruiser" },
+  { "id": "hunter",    "name": "Hunter" },
+  { "id": "caster",    "name": "Caster" },
+  { "id": "disruptor", "name": "Disruptor" },
+  { "id": "mender",    "name": "Mender" }
+]

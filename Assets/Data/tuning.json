@@ -1,0 +1,13 @@
+{
+  "meter_full": 1000,
+  "turn_bar_length": 8,
+  "charge_basic": 25,
+  "charge_special": 15,
+  "charge_per_hurt": 1,
+  "max_dodge": 30,
+  "armor_k": 1000,
+  "offense_change": 25,
+  "defense_change": 25,
+  "momentum_step": 8,
+  "momentum_max": 5
+}

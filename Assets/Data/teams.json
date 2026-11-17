@@ -1,0 +1,10 @@
+[
+  { "id": "enemy_crew",    "kind": "enemy",  "formation": "2-3", "leader": "thordis",
+    "slots": ["kal", "hori", "strix", "halvard", "thordis"] },
+  { "id": "greek_strike",  "kind": "target", "formation": "2-3", "leader": "skipjack",
+    "slots": ["halvard", "hori", "skipjack", "strix", "kal"] },
+  { "id": "healing_wall",  "kind": "target", "formation": "3-2", "leader": "doc_nefer",
+    "slots": ["halvard", "hori", "thordis", "ibis", "doc_nefer"] },
+  { "id": "outlaw_burn",   "kind": "target", "formation": "2-3", "leader": "thordis",
+    "slots": ["halvard", "thordis", "strix", "kal", "doc_nefer"] }
+]
