@@ -20,25 +20,28 @@ namespace HeroHQ.Rules.Data
         public IReadOnlyDictionary<string, ClassDef> Classes { get; private set; }
         public IReadOnlyDictionary<string, TraitDef> Traits { get; private set; }
         public IReadOnlyDictionary<string, TeamDef> Teams { get; private set; }
+        /// <summary>The formations of formations.json by id: each slot's row, covering front slots and screen position (03 Architecture 7.1).</summary>
+        public IReadOnlyDictionary<string, FormationDef> Formations { get; private set; }
         /// <summary>The named tuning values of 02 GDD section 10 (meter_full, charge_basic, armor_k…).</summary>
         public IReadOnlyDictionary<string, double> Tuning { get; private set; }
 
         /// <summary>
-        /// heroes, classes, traits and teams are each a list of records at the top of the file;
+        /// heroes, classes, traits, teams and formations are each a list of records at the top of the file;
         /// tuning is one flat name → number record.
         /// </summary>
         public static GameData Load(string heroesJson, string classesJson, string traitsJson,
-                                    string tuningJson, string teamsJson)
+                                    string tuningJson, string teamsJson, string formationsJson)
         {
             var problems = new List<string>();
 
-            // 1. Read the five texts. A file that can't be read is a problem, not a crash, and nothing
+            // 1. Read the six texts. A file that can't be read is a problem, not a crash, and nothing
             //    more can be checked without it.
             var heroes = Read<List<HeroDef>>("heroes", heroesJson, problems);
             var classes = Read<List<ClassDef>>("classes", classesJson, problems);
             var traits = Read<List<TraitDef>>("traits", traitsJson, problems);
             var teams = Read<List<TeamDef>>("teams", teamsJson, problems);
             var tuning = Read<Dictionary<string, double>>("tuning", tuningJson, problems);
+            var formations = Read<List<FormationDef>>("formations", formationsJson, problems);
             if (problems.Count > 0) throw new GameDataException(problems);
 
             // 2. Find everything by id (a repeated or missing id is a problem).
@@ -48,12 +51,14 @@ namespace HeroHQ.Rules.Data
                 Classes = ById("classes", classes, c => c.Id, problems),
                 Traits = ById("traits", traits, t => t.Id, problems),
                 Teams = ById("teams", teams, t => t.Id, problems),
+                Formations = ById("formations", formations, f => f.Id, problems),
                 Tuning = tuning,
             };
 
             // 3. Check the content, file by file, in file order.
             var checks = new Checks(data, problems);
             checks.Tuning();
+            foreach (var formation in formations.Where(f => f != null && f.Id != null)) checks.Formation(formation);
             foreach (var trait in traits.Where(t => t != null && t.Id != null)) checks.Trait(trait);
             foreach (var hero in heroes.Where(h => h != null && h.Id != null)) checks.Hero(hero);
             foreach (var team in teams.Where(t => t != null && t.Id != null)) checks.Team(team);
@@ -127,7 +132,7 @@ namespace HeroHQ.Rules.Data
             // Trait and class counts: fixed at fight start (02 GDD 8). The other four depend on the moment.
             static readonly string[] CountTests = { "allies_with", "per_ally_with" };
             static readonly string[] TraitKinds = { "side", "pantheon", "origin" };
-            static readonly string[] Formations = { "3-2", "2-3", "4-1", "1-4" };   // 5-0 is not one (02 GDD 11 test 15)
+            static readonly string[] Rows = { "front", "back" };
             static readonly string[] TuningNames =
             {
                 "meter_full", "turn_bar_length", "charge_basic", "charge_special", "charge_per_hurt", "max_dodge",
@@ -322,12 +327,62 @@ namespace HeroHQ.Rules.Data
                 Pieces(where, field + ".pieces", trigger.Pieces);
             }
 
+            // ---- formations ----------------------------------------------------------------------------
+
+            /// <summary>
+            /// 03 Architecture 7.1: five slots numbered 1–5, front ones first, at least one front and one back (so 5–0
+            /// can't be added by mistake, 02 GDD 11 test 15); a back slot names the front slots covering it, a front
+            /// slot none; every slot has a place on screen (two numbers).
+            /// </summary>
+            public void Formation(FormationDef formation)
+            {
+                var where = $"formation '{formation.Id}'";
+                var slots = formation.Slots;
+                if (slots == null || slots.Count != 5)
+                {
+                    Add(where, "slots", $"needs five slots, found {slots?.Count ?? 0}");
+                    return;
+                }
+
+                var rowsKnown = true;
+                for (var i = 0; i < 5; i++)
+                {
+                    var slot = slots[i];
+                    if (slot == null) { Add(where, $"slots[{i}]", "empty slot"); rowsKnown = false; continue; }
+                    if (slot.Slot != i + 1) Add(where, $"slots[{i}].slot", $"must be {i + 1}");
+                    if (!In(Rows, slot.Row)) { Add(where, $"slots[{i}].row", Bad("row", slot.Row)); rowsKnown = false; }
+                    if (slot.At == null || slot.At.Count != 2) Add(where, $"slots[{i}].at", "needs two numbers (x and y)");
+                }
+                if (!rowsKnown) return;   // the cover can't be checked until every row is known
+
+                var front = Enumerable.Range(1, 5).Where(n => slots[n - 1].Row == "front").ToList();
+                if (front.Count == 0 || front.Count == 5)
+                    Add(where, "slots", "needs at least one front slot and one back slot");
+                else if (front.Max() > front.Count)
+                    Add(where, "slots", "front slots must come first");
+
+                for (var i = 0; i < 5; i++)
+                {
+                    var cover = slots[i].CoveredBy;
+                    var field = $"slots[{i}].covered_by";
+                    if (slots[i].Row == "front")
+                    {
+                        if (cover != null && cover.Count > 0) Add(where, field, "a front slot has no covering slots");
+                        continue;
+                    }
+                    if (cover == null || cover.Count == 0) { Add(where, field, "a back slot needs at least one covering front slot"); continue; }
+                    foreach (var number in cover.Where(n => !front.Contains(n)))
+                        Add(where, field, $"slot {number} is not a front slot of this formation");
+                }
+            }
+
             // ---- teams ---------------------------------------------------------------------------------
 
             public void Team(TeamDef team)
             {
                 var where = $"team '{team.Id}'";
-                if (!In(Formations, team.Formation)) Add(where, "formation", Bad("formation", team.Formation));
+                if (team.Formation == null || !data.Formations.ContainsKey(team.Formation))
+                    Add(where, "formation", Bad("formation", team.Formation));
 
                 if (team.Slots == null || team.Slots.Count != 5)
                     Add(where, "slots", $"needs five heroes, found {team.Slots?.Count ?? 0}");

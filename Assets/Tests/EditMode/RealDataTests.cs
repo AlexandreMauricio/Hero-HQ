@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace HeroHQ.Tests
 {
-    // P1-17 (03 Architecture 4.12): the five REAL data files in Assets/Data/ load with no problem, and the numbers
+    // P1-17 (03 Architecture 4.12): the six REAL data files in Assets/Data/ load with no problem, and the numbers
     // in them are the ones 02 GDD 10.2-10.4 (OWNER) and 01 Vision write. Unlike every other test file, these tests
     // read the real files, so they fail on purpose when the owner re-tunes a number: change the expectation here
     // in the same turn as the file (the table below IS the 02 GDD 10.3 table).
@@ -16,7 +16,7 @@ namespace HeroHQ.Tests
         static string Read(string file) => File.ReadAllText(Path.Combine(Application.dataPath, "Data", file));
 
         static GameData Load() =>
-            GameData.Load(Read("heroes.json"), Read("classes.json"), Read("traits.json"), Read("tuning.json"), Read("teams.json"));
+            GameData.Load(Read("heroes.json"), Read("classes.json"), Read("traits.json"), Read("tuning.json"), Read("teams.json"), Read("formations.json"));
 
         static GameData data;
         [OneTimeSetUp] public void LoadOnce() => data = Load();
@@ -24,9 +24,46 @@ namespace HeroHQ.Tests
         // ---- the files load ------------------------------------------------------------------------------------
 
         [Test]
-        public void TheFiveFiles_LoadWithNoProblem()
+        public void TheSixFiles_LoadWithNoProblem()
         {
             Assert.DoesNotThrow(() => Load(), "GameData.Load collects every problem of 03 Architecture 3.4 and throws with the list");
+        }
+
+        // ---- formations (03 Architecture 7.1; 02 GDD 2's lane map) -------------------------------------------------
+
+        // Written "front|front|...": "-" for a front slot, "1,2" for the front slots (numbered from 1, as the file does)
+        // covering a back slot. This is the map of 02 GDD 2.
+        [TestCase("3-2", "-|-|-|1,2|2,3")]
+        [TestCase("2-3", "-|-|1|1,2|2")]
+        [TestCase("4-1", "-|-|-|-|2,3")]
+        [TestCase("1-4", "-|1|1|1|1")]
+        public void TheRealFormations_HoldTheLaneMapOfTheGdd(string id, string map)
+        {
+            var slots = data.Formations[id].Slots;
+            Assert.AreEqual(5, slots.Count);
+            var parts = map.Split('|');
+            for (var i = 0; i < 5; i++)
+            {
+                Assert.AreEqual(i + 1, slots[i].Slot);
+                if (parts[i] == "-")
+                {
+                    Assert.AreEqual("front", slots[i].Row, $"{id} slot {i + 1}");
+                    Assert.IsTrue(slots[i].CoveredBy == null || slots[i].CoveredBy.Count == 0, $"{id} slot {i + 1}");
+                }
+                else
+                {
+                    Assert.AreEqual("back", slots[i].Row, $"{id} slot {i + 1}");
+                    Assert.AreEqual(parts[i].Split(',').Select(int.Parse).ToArray(), slots[i].CoveredBy.ToArray(), $"{id} slot {i + 1}");
+                }
+            }
+        }
+
+        [Test]
+        public void TheRealFormations_AreTheFourOfTheGdd_AndEveryTeamUsesOne()
+        {
+            CollectionAssert.AreEquivalent(new[] { "3-2", "2-3", "4-1", "1-4" }, data.Formations.Keys);
+            foreach (var team in data.Teams.Values)
+                Assert.IsTrue(data.Formations.ContainsKey(team.Formation), $"team {team.Id}");
         }
 
         [Test]

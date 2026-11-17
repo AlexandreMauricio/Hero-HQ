@@ -15,10 +15,10 @@ namespace HeroHQ.Tests
         // ---- helpers ----------------------------------------------------------------------------------
 
         static IReadOnlyList<string> Problems(string heroes = null, string classes = null, string traits = null,
-                                              string tuning = null, string teams = null)
+                                              string tuning = null, string teams = null, string formations = null)
         {
             var error = Assert.Throws<GameDataException>(
-                () => TestData.Load(heroes, classes, traits, tuning, teams));
+                () => TestData.Load(heroes, classes, traits, tuning, teams, formations));
             return error.Problems;
         }
 
@@ -438,10 +438,151 @@ namespace HeroHQ.Tests
         }
 
         [Test]
-        public void FiveZeroAndOtherFormations_AreRejected([Values("5-0", "0-5", "3-3", "2", "")] string formation)
+        public void TeamWithAFormationThatIsNotInTheFile_IsRejected([Values("5-0", "0-5", "3-3", "2", "")] string formation)
         {
+            // 03 Architecture 7.1: the formations are the ones in formations.json, not four names written in code
             var teams = CrewWith(t => t["formation"] = formation);
             ExpectOne(Problems(teams: teams), "test_crew", "formation");
+        }
+
+        [Test]
+        public void TeamWithAFormationAddedToTheFile_Loads()
+        {
+            // the point of the data file: a new formation needs no code change
+            var wide = FormationsWith(list => list.Add(JObject.Parse(@"{ ""id"": ""wide"", ""slots"": [
+                { ""slot"": 1, ""row"": ""front"", ""at"": [1, 1] }, { ""slot"": 2, ""row"": ""back"", ""covered_by"": [1], ""at"": [2, 2] },
+                { ""slot"": 3, ""row"": ""back"", ""covered_by"": [1], ""at"": [2, 3] }, { ""slot"": 4, ""row"": ""back"", ""covered_by"": [1], ""at"": [2, 4] },
+                { ""slot"": 5, ""row"": ""back"", ""covered_by"": [1], ""at"": [2, 5] } ] }")));
+            var teams = CrewWith(t => t["formation"] = "wide");
+            Assert.AreEqual("wide", TestData.Load(teams: teams, formations: wide).Teams["test_crew"].Formation);
+        }
+
+        // ---- formations (03 Architecture 7.1) --------------------------------------------------------
+
+        /// <summary>formations.json with the list changed by <paramref name="change"/>.</summary>
+        static string FormationsWith(System.Action<JArray> change)
+        {
+            var list = JArray.Parse(TestData.Formations);
+            change(list);
+            return list.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        /// <summary>formations.json with the "3-2" record changed.</summary>
+        static string Formation32(System.Action<JObject> change) => TestData.Edit(TestData.Formations, "3-2", change);
+
+        static JObject Slot32(JObject formation, int index) => (JObject)formation["slots"][index];
+
+        [Test]
+        public void FormationIdUsedTwice_IsRejected()
+        {
+            var twice = FormationsWith(list => list.Add(list[0].DeepClone()));
+            ExpectOne(Problems(formations: twice), "formations", "3-2", "more than once");
+        }
+
+        [Test]
+        public void FormationThatIsNotFiveSlots_IsRejected()
+        {
+            var four = Formation32(f => ((JArray)f["slots"]).RemoveAt(4));
+            ExpectOne(Problems(formations: four), "formation '3-2'", "slots", "five", "found 4");
+
+            var six = Formation32(f => ((JArray)f["slots"]).Add(Slot32(f, 4).DeepClone()));
+            ExpectOne(Problems(formations: six), "formation '3-2'", "slots", "found 6");
+        }
+
+        [Test]
+        public void FormationSlotsNotNumberedOneToFiveInOrder_AreRejected()
+        {
+            var wrong = Formation32(f => Slot32(f, 2)["slot"] = 7);
+            ExpectOne(Problems(formations: wrong), "formation '3-2'", "slots[2].slot", "must be 3");
+
+            var missing = Formation32(f => Slot32(f, 0).Remove("slot"));
+            ExpectOne(Problems(formations: missing), "formation '3-2'", "slots[0].slot", "must be 1");
+        }
+
+        [Test]
+        public void FormationSlotWithAnUnknownRow_IsRejected()
+        {
+            var unknown = Formation32(f => Slot32(f, 1)["row"] = "middle");
+            ExpectOne(Problems(formations: unknown), "formation '3-2'", "slots[1].row", "middle");
+        }
+
+        [Test]
+        public void FormationWithABackSlotBeforeAFrontSlot_IsRejected()
+        {
+            // slot 3 becomes a back slot (still covered by slot 1) and slot 4 a front slot: the front ones must come first
+            var swapped = Formation32(f =>
+            {
+                Slot32(f, 2)["row"] = "back";
+                Slot32(f, 2)["covered_by"] = new JArray(1);
+                Slot32(f, 3)["row"] = "front";
+                Slot32(f, 3).Remove("covered_by");
+                Slot32(f, 4)["covered_by"] = new JArray(2);
+            });
+            ExpectOne(Problems(formations: swapped), "formation '3-2'", "slots", "front slots must come first");
+        }
+
+        [Test]
+        public void FiveZeroWrittenAsAFormation_IsStillRefused()
+        {
+            // 02 GDD 11 test 15: nobody protected is not a formation; the file can't add one by mistake
+            var fiveZero = FormationsWith(list => list.Add(JObject.Parse(@"{ ""id"": ""5-0"", ""slots"": [
+                { ""slot"": 1, ""row"": ""front"", ""at"": [1, 1] }, { ""slot"": 2, ""row"": ""front"", ""at"": [1, 2] },
+                { ""slot"": 3, ""row"": ""front"", ""at"": [1, 3] }, { ""slot"": 4, ""row"": ""front"", ""at"": [1, 4] },
+                { ""slot"": 5, ""row"": ""front"", ""at"": [1, 5] } ] }")));
+            ExpectOne(Problems(formations: fiveZero), "formation '5-0'", "slots", "one front slot and one back slot");
+
+            var zeroFive = FormationsWith(list => list.Add(JObject.Parse(@"{ ""id"": ""0-5"", ""slots"": [
+                { ""slot"": 1, ""row"": ""back"", ""covered_by"": [1], ""at"": [1, 1] }, { ""slot"": 2, ""row"": ""back"", ""covered_by"": [1], ""at"": [1, 2] },
+                { ""slot"": 3, ""row"": ""back"", ""covered_by"": [1], ""at"": [1, 3] }, { ""slot"": 4, ""row"": ""back"", ""covered_by"": [1], ""at"": [1, 4] },
+                { ""slot"": 5, ""row"": ""back"", ""covered_by"": [1], ""at"": [1, 5] } ] }")));
+            Assert.IsTrue(Problems(formations: zeroFive).Any(p => p.Contains("formation '0-5'") && p.Contains("one front slot and one back slot")));
+        }
+
+        [Test]
+        public void BackSlotWithNoCover_IsRejected()
+        {
+            var none = Formation32(f => Slot32(f, 3).Remove("covered_by"));
+            ExpectOne(Problems(formations: none), "formation '3-2'", "slots[3].covered_by", "at least one");
+
+            var empty = Formation32(f => Slot32(f, 3)["covered_by"] = new JArray());
+            ExpectOne(Problems(formations: empty), "formation '3-2'", "slots[3].covered_by", "at least one");
+        }
+
+        [Test]
+        public void BackSlotCoveredByASlotThatIsNotAFrontSlotOfTheFormation_IsRejected()
+        {
+            var aBackSlot = Formation32(f => Slot32(f, 3)["covered_by"] = new JArray(1, 5));
+            ExpectOne(Problems(formations: aBackSlot), "formation '3-2'", "slots[3].covered_by", "5", "not a front slot");
+
+            var outside = Formation32(f => Slot32(f, 3)["covered_by"] = new JArray(0, 2));
+            ExpectOne(Problems(formations: outside), "formation '3-2'", "slots[3].covered_by", "0", "not a front slot");
+        }
+
+        [Test]
+        public void FrontSlotWithCover_IsRejected()
+        {
+            var covered = Formation32(f => Slot32(f, 1)["covered_by"] = new JArray(1));
+            ExpectOne(Problems(formations: covered), "formation '3-2'", "slots[1].covered_by", "front slot");
+        }
+
+        [Test]
+        public void FormationSlotWithoutTwoNumbersForItsPlace_IsRejected()
+        {
+            var missing = Formation32(f => Slot32(f, 0).Remove("at"));
+            ExpectOne(Problems(formations: missing), "formation '3-2'", "slots[0].at", "two numbers");
+
+            var one = Formation32(f => Slot32(f, 0)["at"] = new JArray(300));
+            ExpectOne(Problems(formations: one), "formation '3-2'", "slots[0].at", "two numbers");
+
+            var three = Formation32(f => Slot32(f, 0)["at"] = new JArray(300, 100, 5));
+            ExpectOne(Problems(formations: three), "formation '3-2'", "slots[0].at", "two numbers");
+        }
+
+        [Test]
+        public void FormationsFileThatCannotBeRead_IsRejected_AsAProblemNotACrash()
+        {
+            ExpectOne(Problems(formations: "this is not json"), "formations");
+            ExpectOne(Problems(formations: "null"), "formations", "empty");
         }
 
         // ---- files that cannot be read, repeated ids, several problems at once -----------------------

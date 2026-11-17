@@ -30,6 +30,31 @@ namespace HeroHQ.Tests
 
         // ---- rows ---------------------------------------------------------------------------------------
 
+        // P2a-01 (03 Architecture 7.1, reading R18): the lane map of 02 GDD 2 comes from formations.json. Fighters
+        // keep the covering front slots in the code's numbers (the data's slot n is slot n - 1 here).
+        // Written "front|front|...": "-" for a front hero, "0,1" for the front slots covering a back hero.
+        [TestCase("3-2", "-|-|-|0,1|1,2")]
+        [TestCase("2-3", "-|-|0|0,1|1")]
+        [TestCase("4-1", "-|-|-|-|1,2")]
+        [TestCase("1-4", "-|0|0|0|0")]
+        public void Create_GivesEachBackHeroTheFrontSlotsCoveringThem_AsTheGddMapSays(string formation, string map)
+        {
+            var fight = NewTestFight(playerFormation: formation, enemyFormation: formation);
+            var expected = map.Split('|').Select(c => c == "-" ? new int[0] : c.Split(',').Select(int.Parse).ToArray()).ToArray();
+
+            foreach (var team in new[] { fight.Players, fight.Enemies })
+                for (var i = 0; i < 5; i++)
+                    Assert.AreEqual(expected[i], team[i].CoveredBy.ToArray(), $"{formation}, slot {i}");
+        }
+
+        [Test]
+        public void ACopyOfTheFight_KeepsTheCover()
+        {
+            var copy = NewTestFight().Copy();
+            Assert.AreEqual(new[] { 0, 1 }, copy.Enemies[3].CoveredBy.ToArray());
+            Assert.AreEqual(new[] { 1, 2 }, copy.Players[4].CoveredBy.ToArray());
+        }
+
         [TestCase("3-2", new[] { Row.Front, Row.Front, Row.Front, Row.Back, Row.Back })]
         [TestCase("2-3", new[] { Row.Front, Row.Front, Row.Back, Row.Back, Row.Back })]
         [TestCase("4-1", new[] { Row.Front, Row.Front, Row.Front, Row.Front, Row.Back })]

@@ -24,7 +24,7 @@ namespace HeroHQ.Tests
         public void LoadOnce()
         {
             string Read(string file) => File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "Data", file));
-            data = GameData.Load(Read("heroes.json"), Read("classes.json"), Read("traits.json"), Read("tuning.json"), Read("teams.json"));
+            data = GameData.Load(Read("heroes.json"), Read("classes.json"), Read("traits.json"), Read("tuning.json"), Read("teams.json"), Read("formations.json"));
         }
 
         // ---- the counting, on small made-up turn orders -----------------------------------------------------------

@@ -147,13 +147,34 @@ namespace HeroHQ.Rules.Data
         [JsonProperty("glow")] public string Glow { get; private set; }
     }
 
+    /// <summary>One formation: its five slots in slot order (formations.json, 03 Architecture 7.1).</summary>
+    public class FormationDef
+    {
+        /// <summary>The name teams use: "3-2", "2-3", "4-1" or "1-4".</summary>
+        [JsonProperty("id")] public string Id { get; private set; }
+        [JsonProperty("slots")] public IReadOnlyList<FormationSlotDef> Slots { get; private set; }
+    }
+
+    /// <summary>One slot of a formation. Slots are numbered 1–5 here, as in 02 GDD 2; the code counts from 0 (reading R18).</summary>
+    public class FormationSlotDef
+    {
+        /// <summary>1 to 5: front row top to bottom, then the back row.</summary>
+        [JsonProperty("slot")] public int? Slot { get; private set; }
+        /// <summary>front or back.</summary>
+        [JsonProperty("row")] public string Row { get; private set; }
+        /// <summary>Back slots only: the front slot numbers standing in front of this one (the lane map of 02 GDD 2).</summary>
+        [JsonProperty("covered_by")] public IReadOnlyList<int> CoveredBy { get; private set; }
+        /// <summary>Where the hero's box stands on screen: x, y in reference pixels on the player's side. The rules never read it.</summary>
+        [JsonProperty("at")] public IReadOnlyList<double> At { get; private set; }
+    }
+
     /// <summary>The enemy crew or a target team (teams.json).</summary>
     public class TeamDef
     {
         [JsonProperty("id")] public string Id { get; private set; }
         /// <summary>enemy or target.</summary>
         [JsonProperty("kind")] public string Kind { get; private set; }
-        /// <summary>3-2, 2-3, 4-1 or 1-4.</summary>
+        /// <summary>The id of a formation in formations.json (3-2, 2-3, 4-1 or 1-4).</summary>
         [JsonProperty("formation")] public string Formation { get; private set; }
         /// <summary>Hero id of the named leader.</summary>
         [JsonProperty("leader")] public string Leader { get; private set; }

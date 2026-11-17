@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 
 namespace HeroHQ.Tests
 {
-    // P1-02 (03 Architecture 4.12): the five data files' text for small TEST heroes with round numbers.
+    // P1-02 (03 Architecture 4.12): the six data files' text for small TEST heroes with round numbers.
     // The tests own these numbers, so they keep passing while the real heroes are tuned (4.12).
     // Every default below is valid; a test breaks one thing on purpose and says which.
     //
@@ -60,6 +60,37 @@ namespace HeroHQ.Tests
     ""slots"": [""rowan"", ""mira"", ""vex"", ""orla"", ""dax""] },
   { ""id"": ""test_target"", ""kind"": ""target"", ""formation"": ""3-2"", ""leader"": ""rowan"",
     ""slots"": [""dax"", ""orla"", ""vex"", ""mira"", ""rowan""] }
+]";
+
+        /// <summary>
+        /// The four formations of 02 GDD 2 as formations.json writes them (03 Architecture 7.1): slots 1–5, the row,
+        /// the front slots covering each back slot, and where the box stands. The tests own this copy.
+        /// </summary>
+        public const string Formations = @"[
+  { ""id"": ""3-2"", ""slots"": [
+      { ""slot"": 1, ""row"": ""front"", ""at"": [300, 100] },
+      { ""slot"": 2, ""row"": ""front"", ""at"": [300, 300] },
+      { ""slot"": 3, ""row"": ""front"", ""at"": [300, 500] },
+      { ""slot"": 4, ""row"": ""back"",  ""covered_by"": [1, 2], ""at"": [600, 200] },
+      { ""slot"": 5, ""row"": ""back"",  ""covered_by"": [2, 3], ""at"": [600, 400] } ] },
+  { ""id"": ""2-3"", ""slots"": [
+      { ""slot"": 1, ""row"": ""front"", ""at"": [300, 200] },
+      { ""slot"": 2, ""row"": ""front"", ""at"": [300, 400] },
+      { ""slot"": 3, ""row"": ""back"",  ""covered_by"": [1],    ""at"": [600, 100] },
+      { ""slot"": 4, ""row"": ""back"",  ""covered_by"": [1, 2], ""at"": [600, 300] },
+      { ""slot"": 5, ""row"": ""back"",  ""covered_by"": [2],    ""at"": [600, 500] } ] },
+  { ""id"": ""4-1"", ""slots"": [
+      { ""slot"": 1, ""row"": ""front"", ""at"": [300, 50] },
+      { ""slot"": 2, ""row"": ""front"", ""at"": [300, 200] },
+      { ""slot"": 3, ""row"": ""front"", ""at"": [300, 350] },
+      { ""slot"": 4, ""row"": ""front"", ""at"": [300, 500] },
+      { ""slot"": 5, ""row"": ""back"",  ""covered_by"": [2, 3], ""at"": [600, 275] } ] },
+  { ""id"": ""1-4"", ""slots"": [
+      { ""slot"": 1, ""row"": ""front"", ""at"": [300, 275] },
+      { ""slot"": 2, ""row"": ""back"",  ""covered_by"": [1], ""at"": [600, 50] },
+      { ""slot"": 3, ""row"": ""back"",  ""covered_by"": [1], ""at"": [600, 200] },
+      { ""slot"": 4, ""row"": ""back"",  ""covered_by"": [1], ""at"": [600, 350] },
+      { ""slot"": 5, ""row"": ""back"",  ""covered_by"": [1], ""at"": [600, 500] } ] }
 ]";
 
         /// <summary>One valid test hero as JSON. The name is the id with a capital, so a mixed-up field shows.</summary>
@@ -120,8 +151,8 @@ namespace HeroHQ.Tests
         /// Loads a data set. Anything not passed is the valid default, so a test names only what it breaks.
         /// </summary>
         public static GameData Load(string heroes = null, string classes = null, string traits = null,
-                                    string tuning = null, string teams = null)
+                                    string tuning = null, string teams = null, string formations = null)
             => GameData.Load(heroes ?? ValidHeroes(), classes ?? Classes, traits ?? Traits,
-                             tuning ?? Tuning, teams ?? Teams);
+                             tuning ?? Tuning, teams ?? Teams, formations ?? Formations);
     }
 }

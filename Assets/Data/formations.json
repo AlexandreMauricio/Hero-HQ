@@ -1,0 +1,29 @@
+[
+  { "id": "3-2", "slots": [
+      { "slot": 1, "row": "front", "at": [300, 100] },
+      { "slot": 2, "row": "front", "at": [300, 300] },
+      { "slot": 3, "row": "front", "at": [300, 500] },
+      { "slot": 4, "row": "back",  "covered_by": [1, 2], "at": [600, 200] },
+      { "slot": 5, "row": "back",  "covered_by": [2, 3], "at": [600, 400] } ] },
+
+  { "id": "2-3", "slots": [
+      { "slot": 1, "row": "front", "at": [300, 200] },
+      { "slot": 2, "row": "front", "at": [300, 400] },
+      { "slot": 3, "row": "back",  "covered_by": [1],    "at": [600, 100] },
+      { "slot": 4, "row": "back",  "covered_by": [1, 2], "at": [600, 300] },
+      { "slot": 5, "row": "back",  "covered_by": [2],    "at": [600, 500] } ] },
+
+  { "id": "4-1", "slots": [
+      { "slot": 1, "row": "front", "at": [300, 50] },
+      { "slot": 2, "row": "front", "at": [300, 200] },
+      { "slot": 3, "row": "front", "at": [300, 350] },
+      { "slot": 4, "row": "front", "at": [300, 500] },
+      { "slot": 5, "row": "back",  "covered_by": [2, 3], "at": [600, 275] } ] },
+
+  { "id": "1-4", "slots": [
+      { "slot": 1, "row": "front", "at": [300, 275] },
+      { "slot": 2, "row": "back",  "covered_by": [1], "at": [600, 50] },
+      { "slot": 3, "row": "back",  "covered_by": [1], "at": [600, 200] },
+      { "slot": 4, "row": "back",  "covered_by": [1], "at": [600, 350] },
+      { "slot": 5, "row": "back",  "covered_by": [1], "at": [600, 500] } ] }
+]

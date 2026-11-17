@@ -49,6 +49,13 @@ namespace HeroHQ.Rules
         /// <summary>The row from the team's formation: the first slots stand in front (P1-08). Never changes during a fight.</summary>
         public Row Row { get; set; }
 
+        /// <summary>
+        /// The front-row slots standing in front of this hero (the lane map of 02 GDD 2), in the code's numbers
+        /// (slot 1 of the data is 0 here, reading R18). Empty for a front-row hero. Read-only and shared with every
+        /// copy of the fight. From the formation's data; nothing reads it until the lane rule (P2a-02).
+        /// </summary>
+        public IReadOnlyList<int> CoveredBy { get; set; } = new int[0];
+
         /// <summary>Health now, a whole number. Starts at the hero's final Health.</summary>
         public int Health { get; set; }
 

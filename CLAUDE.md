@@ -22,7 +22,7 @@ Build only what an approved spec asks for. Labels in the vault: **OWNER** (appro
 
 | Folder | What |
 |---|---|
-| `Assets/Data/` | Content as JSON: heroes, classes, traits. The code never names a hero, class or trait |
+| `Assets/Data/` | Content as JSON, six files: heroes, classes, traits, tuning, teams, formations (each formation's rows, which front slots cover each back slot, and where the boxes stand). The code never names a hero, class or trait |
 | `Assets/Scripts/Rules/` | The fight's logic as plain C#: no scene objects, nothing drawn, no waiting. Tested by EditMode tests |
 | `Assets/Scripts/Screens/` | What you see and touch; asks `Rules` what happens and plays it back |
 | `Assets/Scenes/` | Scenes (TeamSelect, Battle when they exist; `SampleScene` from the template until then) |
@@ -44,4 +44,4 @@ Starts Unity with no window, runs every EditMode test, prints `N tests: P passed
 
 ## Git
 
-Own repository, **no remote** until the owner says. Commit only when the owner asks. **Standing permission (owner, 2026-11-16):** during phase 1, commit after each finished task of 03 Architecture 4.12 once `tools/test.sh` passes, one commit per task, named after the task (e.g. `P1-01: Rules assembly and data classes`). Never commit `Library/`, `Temp/`, `Logs/`, `UserSettings/`, builds or test results (`.gitignore`).
+Own repository, **no remote** until the owner says. Commit only when the owner asks. **Standing permission (owner, 2026-11-16):** during phase 1, commit after each finished task of 03 Architecture 4.12 once `tools/test.sh` passes, one commit per task, named after the task (e.g. `P1-01: Rules assembly and data classes`). **Extended (owner, 2026-11-17):** the same during phase 2a, for each finished task of 03 Architecture section 7 (the Lead Gameplay Programmer's 2a task list). Never commit `Library/`, `Temp/`, `Logs/`, `UserSettings/`, builds or test results (`.gitignore`).

@@ -4,7 +4,7 @@ using NUnit.Framework;
 
 namespace HeroHQ.Tests
 {
-    // P1-02 (03 Architecture 4.12): GameData.Load reads the five data texts and either hands back the
+    // P1-02 (03 Architecture 4.12): GameData.Load reads the six data texts and either hands back the
     // whole content, found by id, or stops with every problem it found, in one error (3.4).
     // The individual checks of 3.4 arrive one by one in P1-03; this task proves the loading and the error.
     public class GameDataTests
@@ -52,6 +52,14 @@ namespace HeroHQ.Tests
             CollectionAssert.AreEqual(new[] { "rowan", "mira", "vex", "orla", "dax" }, crew.Slots);
             Assert.AreEqual("target", data.Teams["test_target"].Kind);
             Assert.AreEqual("3-2", data.Teams["test_target"].Formation);
+
+            Assert.AreEqual(4, data.Formations.Count);
+            var slotsOf32 = data.Formations["3-2"].Slots;
+            Assert.AreEqual(5, slotsOf32.Count);
+            Assert.AreEqual(4, slotsOf32[3].Slot);
+            Assert.AreEqual("back", slotsOf32[3].Row);
+            CollectionAssert.AreEqual(new[] { 1, 2 }, slotsOf32[3].CoveredBy);
+            CollectionAssert.AreEqual(new[] { 600.0, 200.0 }, slotsOf32[3].At);
 
             Assert.AreEqual(TestData.TuningNames.Length, data.Tuning.Count);
             Assert.AreEqual(1000, data.Tuning["meter_full"]);

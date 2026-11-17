@@ -140,14 +140,16 @@ namespace HeroHQ.Rules
 
         static List<Fighter> Team(GameData data, TeamDef team, Side side)
         {
-            // "3-2" = three in front, two behind: the first slots stand in the front row (02 GDD 2). The loader
-            // has already checked the formation is one of the four allowed.
-            var inFront = int.Parse(team.Formation.Split('-')[0]);
+            // The team's formation comes from formations.json (03 Architecture 7.1): each slot's row and the front
+            // slots covering it. The loader has already checked the formation exists and is well formed. The file
+            // counts slots from 1 like the GDD; the code counts from 0 (reading R18).
+            var slots = data.Formations[team.Formation].Slots;
             // Final stats from the named leader's skill and the passives, worked out once, here: the same
             // calculation team select shows (02 GDD 8; 03 Architecture 4.6, P1-12).
             return Bonuses.Preview(data, team.Slots, team.Leader).Select(b => new Fighter(side, b.Slot, b.Stat("speed"), b.Hero)
             {
-                Row = b.Slot < inFront ? Row.Front : Row.Back,
+                Row = slots[b.Slot].Row == "front" ? Row.Front : Row.Back,
+                CoveredBy = (slots[b.Slot].CoveredBy ?? new int[0]).Select(n => n - 1).ToList(),
                 Health = b.Stat("health"),
                 MaxHealth = b.Stat("health"),
                 Damage = b.Stat("damage"),
