@@ -140,5 +140,110 @@ namespace HeroHQ.Tests
             Assert.AreEqual(text, File.ReadAllText(FightReport.Path));
             TestContext.Out.WriteLine("Fight report written to " + FightReport.Path);
         }
+
+        // ---- P1-19: the plain-English fight log (FightLog.cs) -------------------------------------------------------
+        // One fight (Greek strike vs the crew, seed 1) told as sentences, counted from the same event list as the report.
+
+        static string LogOf(string team, int seed, out TestFights.PlayedFight played)
+        {
+            played = TestFights.Play(data, data.Teams[team], data.Teams["enemy_crew"], seed);
+            return FightLog.Markdown(data, data.Teams[team], data.Teams["enemy_crew"], seed, played);
+        }
+
+        static IEnumerable<string> Bullets(string log) => log.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.StartsWith("- ") && !l.StartsWith("- **"));
+
+        [Test]
+        public void Log_EveryKindOfEvent_HasASentence_NotTheEnumName()
+        {
+            var fight = Little();
+            var teller = new FightLog.Teller();
+            foreach (FightEventKind kind in System.Enum.GetValues(typeof(FightEventKind)))
+            {
+                var sentence = teller.Say(new FightEvent(kind, fight.Players[0], "offense_up"));
+                Assert.IsNotEmpty(sentence, kind.ToString());
+                StringAssert.DoesNotContain(kind.ToString(), sentence, "a sentence, not the raw kind: " + kind);
+                // and for the events that are about the whole fight, with no hero
+                Assert.IsNotEmpty(teller.Say(new FightEvent(kind)), kind + " with no hero");
+            }
+        }
+
+        [Test]
+        public void Log_DataNamesBecomeWords()
+        {
+            Assert.AreEqual("Offense Up", FightLog.Teller.Words("offense_up"));
+            Assert.AreEqual("Ward", FightLog.Teller.Words("ward"));
+            Assert.AreEqual("an effect", FightLog.Teller.Words(null));
+        }
+
+        [Test]
+        public void Log_TheSameSeedTwice_GivesTheSameLog()
+        {
+            Assert.AreEqual(LogOf("greek_strike", 1, out _), LogOf("greek_strike", 1, out _));
+        }
+
+        [Test]
+        public void Log_ReadsAsAStory_OneLinePerEvent_WithTurnsAndAnEnding()
+        {
+            var log = LogOf("greek_strike", 1, out var played);
+            StringAssert.Contains("greek_strike vs enemy_crew, seed 1", log);
+            StringAssert.Contains("## Turn 1:", log);
+            StringAssert.Contains("## The end", log);
+            StringAssert.IsMatch(@"(You won|You lost|No winner) after \d+ turns", log);
+            foreach (var id in data.Teams["greek_strike"].Slots.Concat(data.Teams["enemy_crew"].Slots))
+                StringAssert.Contains(data.Heroes[id].Name, log, "every hero in the fight is named (team lines)");
+            Assert.AreEqual(played.Events.Count, Bullets(log).Count(), "exactly one bullet per event: nothing dropped, nothing invented");
+            foreach (FightEventKind kind in System.Enum.GetValues(typeof(FightEventKind)))
+                StringAssert.DoesNotContain(kind.ToString() + ":", log, "no raw event text in the story");
+            Assert.AreEqual(played.Turns, log.Split('\n').Count(l => l.StartsWith("## Turn ")), "one heading per turn");
+        }
+
+        [Test]
+        public void Log_SayWhoUsedWhat_AndNamesTheUltimate()
+        {
+            var log = LogOf("greek_strike", 1, out var played);
+            foreach (var e in played.Events.Where(x => x.Kind == FightEventKind.SkillUsed && x.Button == Button.Ultimate).Take(3))
+                StringAssert.Contains($"ULTIMATE! {FightLog.Teller.Name(e.Who)} unleashes {e.Who.Hero.Ultimate.Name}", log);
+            foreach (var e in played.Events.Where(x => x.Kind == FightEventKind.SkillUsed && x.Button == Button.Basic).Take(3))
+                StringAssert.Contains($"{FightLog.Teller.Name(e.Who)} uses basic skill {e.Who.Hero.Basic.Name}", log);
+        }
+
+        [Test]
+        public void Log_HealthIsCountedFromTheEvents_AHeroKnockedOutShowsZeroLeft()
+        {
+            LogOf("greek_strike", 1, out var played);
+            var teller = new FightLog.Teller();
+            var lastHit = new Dictionary<Fighter, string>();
+            var knockouts = 0;
+            foreach (var e in played.Events)
+            {
+                var sentence = teller.Say(e);
+                if (e.Kind == FightEventKind.Damaged) lastHit[e.Who] = sentence;
+                if (e.Kind != FightEventKind.KnockedOut) continue;
+                knockouts++;
+                StringAssert.Contains("; 0 of ", lastHit[e.Who], e.Who + " was knocked out, so the hit before it leaves 0 Health");
+            }
+            Assert.Greater(knockouts, 0, "the fight has knockouts, or this test checks nothing");
+        }
+
+        [Test]
+        public void Log_AllThreeTeams_TwentySeeds_TellEveryFight_WithoutAProblem()
+        {
+            foreach (var team in TargetTeams)
+                for (var seed = 1; seed <= Seeds; seed++)
+                {
+                    var log = LogOf(team, seed, out var played);
+                    Assert.AreEqual(played.Events.Count, Bullets(log).Count(), $"{team} seed {seed}");
+                }
+        }
+
+        [Test]
+        public void Log_IsWrittenToTestResults()
+        {
+            var log = LogOf("greek_strike", 1, out _);
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(FightLog.Path));
+            File.WriteAllText(FightLog.Path, log);
+            Assert.AreEqual(log, File.ReadAllText(FightLog.Path));
+            TestContext.Out.WriteLine("Fight log written to " + FightLog.Path);
+        }
     }
 }
