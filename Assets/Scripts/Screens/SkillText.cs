@@ -119,8 +119,8 @@ namespace HeroHQ.Screens
         static string EffectName(PieceDef piece) =>
             piece.Effect == "barrier" ? $"Barrier ({Num(piece.Percent)} % of max Health)" : Words(piece.Effect);
 
-        /// <summary>A data name in words: "offense_up" is "Offense Up" (the same as the fight log's).</summary>
-        static string Words(string dataName)
+        /// <summary>A data name in words: "offense_up" is "Offense Up" (the same as the fight log's). The effect chips use it too.</summary>
+        internal static string Words(string dataName)
         {
             if (string.IsNullOrEmpty(dataName)) throw new ArgumentException("SkillText was given a name that is missing in the data.");
             return string.Join(" ", dataName.Split('_').Where(w => w.Length > 0).Select(w => char.ToUpperInvariant(w[0]) + w.Substring(1)));
