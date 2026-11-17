@@ -62,23 +62,30 @@ namespace HeroHQ.Tests
         /// <summary>
         /// The loop of 03 Architecture 4.3 with <see cref="EnemyAI"/> choosing for whichever side is acting, until the
         /// fight is decided or <paramref name="maxTurns"/> turns have started. The one copy of the loop that the whole-fight
-        /// tests, the real-data smoke test and the fight report share.
+        /// tests, the real-data smoke test and the fight report share. <paramref name="after"/>, if given, is called with
+        /// the fight and each batch of events right after it happened: the start events, every <c>AdvanceToChoice</c> and
+        /// every <c>Act</c> (P2a-03; the playback test of P2a-05 uses it too).
         /// </summary>
-        public static PlayedFight Play(GameData data, TeamDef players, TeamDef enemies, int seed, int maxTurns = MaxTurns)
+        public static PlayedFight Play(GameData data, TeamDef players, TeamDef enemies, int seed, int maxTurns = MaxTurns,
+                                       Action<Fight, IReadOnlyList<FightEvent>> after = null)
         {
             var fight = Fight.Create(data, players, enemies, seed);
             var played = new PlayedFight { Fight = fight };
             played.Events.AddRange(fight.StartEvents);
+            after?.Invoke(fight, fight.StartEvents);
             var turns = 0;
 
             while (fight.Outcome == Outcome.Going && turns < maxTurns)
             {
                 var advanced = fight.AdvanceToChoice();
                 played.Events.AddRange(advanced);
+                after?.Invoke(fight, advanced);                 // a hero is now choosing (Acting is set), unless the fight just ended
                 turns += advanced.Count(e => e.Kind == FightEventKind.TurnStarted);
                 if (fight.Outcome != Outcome.Going) break;
                 Assert.IsFalse(fight.Acting.KnockedOut, "a knocked-out hero never gets a turn");
-                played.Events.AddRange(fight.Act(EnemyAI.Choose(fight)));
+                var acted = fight.Act(EnemyAI.Choose(fight));
+                played.Events.AddRange(acted);
+                after?.Invoke(fight, acted);                    // the action is done (Acting is null again)
             }
             return played;
         }

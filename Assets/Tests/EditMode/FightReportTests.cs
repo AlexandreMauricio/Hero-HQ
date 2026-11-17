@@ -94,6 +94,91 @@ namespace HeroHQ.Tests
             Assert.AreEqual(1, ultimates.Values.Sum(), "nobody else fired one; Basic and Special turns are not counted");
         }
 
+        // ---- P2a-03: one-button turns (03 Architecture 4.10, R3), on a made-up fight ---------------------------------
+        // p0 is the fastest, so it is the one choosing after AdvanceToChoice. We set its Special's cooldown and its
+        // charge by hand, then ask the counter to note the choice.
+
+        static (int own, int one) OneButton(int cooldown, double charge, bool stunned = false)
+        {
+            var fight = Little();
+            var hero = fight.Players[0];
+            hero.Cooldown = cooldown;
+            hero.Charge = charge;
+            if (stunned) Effects.Apply(hero, "stun", 0);
+            fight.AdvanceToChoice();
+            var counter = new FightReport.ChoiceCounter();
+            counter.Note(fight);
+            var key = (hero.Side, hero.Slot);
+            int Of(Dictionary<(Side, int), int> d) => d.TryGetValue(key, out var n) ? n : 0;
+            if (stunned) Assert.AreNotSame(hero, fight.Acting, "the stunned hero skipped its turn and never chose");
+            return (Of(counter.OwnTurns), Of(counter.OneButtonTurns));
+        }
+
+        [Test]
+        public void OneButton_SpecialOnCooldown_AndUltimateNotCharged_Counts() =>
+            Assert.AreEqual((1, 1), OneButton(cooldown: 2, charge: 0));
+
+        [Test]
+        public void OneButton_SpecialReady_DoesNotCount() =>
+            Assert.AreEqual((1, 0), OneButton(cooldown: 0, charge: 0));
+
+        [Test]
+        public void OneButton_UltimateCharged_DoesNotCount_EvenWithSpecialOnCooldown() =>
+            Assert.AreEqual((1, 0), OneButton(cooldown: 2, charge: 100));
+
+        [Test]
+        public void OneButton_AStunnedSkippedTurn_IsNotATurnHere()
+        {
+            var fight = Little();
+            Effects.Apply(fight.Players[0], "stun", 0);           // the fastest hero would act first, but is stunned
+            var events = fight.AdvanceToChoice();
+            Assert.AreEqual(1, events.Count(e => e.Kind == FightEventKind.TurnSkipped), "p0's turn was skipped");
+            Assert.AreEqual(2, events.Count(e => e.Kind == FightEventKind.TurnStarted), "the skipped turn, then the real choice");
+
+            var counter = new FightReport.ChoiceCounter();
+            counter.Note(fight);
+            Assert.AreEqual(1, counter.OwnTurns.Values.Sum(), "only the turn that reached a choice counts; the skipped one does not");
+        }
+
+        [Test]
+        public void OneButton_NothingIsNoted_WhenNobodyIsChoosing()
+        {
+            var fight = Little();
+            var counter = new FightReport.ChoiceCounter();
+            counter.Note(fight);                                  // before AdvanceToChoice: Acting is null
+            CollectionAssert.IsEmpty(counter.OwnTurns);
+            CollectionAssert.IsEmpty(counter.OneButtonTurns);
+        }
+
+        [Test]
+        public void OneButton_OnTheRealData_OwnTurnsAreTheChoicesMade_SkippedTurnsLeftOut_AndNeverMoreThanOwnTurns()
+        {
+            foreach (var team in TargetTeams)
+                for (var seed = 1; seed <= Seeds; seed++)
+                {
+                    var counter = new FightReport.ChoiceCounter();
+                    var played = TestFights.Play(data, data.Teams[team], data.Teams["enemy_crew"], seed, after: (f, _) => counter.Note(f));
+                    var skipped = played.Events.Count(e => e.Kind == FightEventKind.TurnSkipped);
+                    var own = counter.OwnTurns.Values.Sum();
+                    Assert.AreEqual(played.Events.Count(e => e.Kind == FightEventKind.SkillUsed), own, $"{team} seed {seed}: one choice, one skill used");
+                    Assert.AreEqual(played.Turns - skipped, own, $"{team} seed {seed}: turns started, minus skipped ones");
+                    foreach (var kv in counter.OneButtonTurns)
+                        Assert.LessOrEqual(kv.Value, counter.OwnTurns[kv.Key], $"{team} seed {seed} {kv.Key}");
+                }
+        }
+
+        [Test]
+        public void TheCallback_IsCalledAfterTheStart_EveryAdvance_AndEveryAct()
+        {
+            var calls = new List<(bool choosing, int events)>();
+            var played = TestFights.Play(data, data.Teams["greek_strike"], data.Teams["enemy_crew"], 1,
+                                         after: (f, batch) => calls.Add((f.Acting != null, batch.Count)));
+            Assert.AreEqual(played.Events.Count, calls.Sum(c => c.events), "the batches add up to every event, once each");
+            Assert.IsFalse(calls[0].choosing, "the first batch is the fight-start events");
+            Assert.AreEqual(1 + 2 * played.Events.Count(e => e.Kind == FightEventKind.SkillUsed), calls.Count,
+                            "the start, then an advance and an act per action (the last act ended the fight)");
+        }
+
         // ---- the report on the real data --------------------------------------------------------------------------
 
         static List<FightReport.TeamResult> RunAll() => TargetTeams.Select(t => FightReport.Run(data, t, "enemy_crew", Seeds)).ToList();
@@ -128,6 +213,22 @@ namespace HeroHQ.Tests
             StringAssert.Contains("No winner", text);
             StringAssert.Contains("Ultimates", text);
             StringAssert.Contains("Double turns", text);
+            StringAssert.Contains("One-button turns", text);
+        }
+
+        [Test]
+        public void TheReport_GivesEveryHeroAOneButtonShare_BetweenZeroAndOneHundredPercent()
+        {
+            var text = FightReport.Markdown(RunAll());
+            var rows = text.Split('\n').Where(l => l.StartsWith("| Your team |") || l.StartsWith("| Crew |")).ToList();
+            Assert.AreEqual(3 * 10, rows.Count, "ten hero rows per team table");
+            foreach (var row in rows)
+            {
+                var cells = row.Split('|').Select(c => c.Trim()).ToArray();
+                var share = cells[cells.Length - 2];               // the last column
+                StringAssert.IsMatch(@"^(\d{1,3}(\.\d)? %|–)$", share, row);
+                if (share != "–") Assert.LessOrEqual(double.Parse(share.Replace(" %", ""), System.Globalization.CultureInfo.InvariantCulture), 100.0, row);
+            }
         }
 
         [Test]
