@@ -279,5 +279,228 @@ namespace HeroHQ.Tests
             Assert.AreEqual(10, view.Field.childCount, "the old figures are gone");
             Assert.IsTrue(view.Figures.Keys.All(f => again.Players.Contains(f) || again.Enemies.Contains(f)));
         }
+
+        // ---- the show (P2a-08; 02 GDD 17.6, 17.7) --------------------------------------------------------------
+
+        // FightEvent's detail fields have internal setters (only the rules write them), so a hand-made event sets them by reflection.
+        static FightEvent Event(FightEventKind kind, Fighter who, string effect = null, int amount = 0, int soaked = 0,
+                                bool crit = false, HeroHQ.Rules.Button? button = null)
+        {
+            var e = new FightEvent(kind, who, effect);
+            void Set(string name, object value) => typeof(FightEvent).GetProperty(name).SetValue(e, value);
+            Set("Amount", amount);
+            Set("Soaked", soaked);
+            Set("Crit", crit);
+            if (button != null) Set("Button", button);
+            return e;
+        }
+
+        const float Beat = 0.4f;
+
+        static void AssertNumber(FightEvent e, string text, Color color, int size, string why)
+        {
+            var number = BattleView.NumberFor(e);
+            Assert.IsTrue(number.HasValue, why);
+            Assert.AreEqual(text, number.Value.Text, why);
+            Assert.AreEqual(color, number.Value.Color, why);
+            Assert.AreEqual(size, number.Value.Size, why);
+        }
+
+        [Test]
+        public void TheFloatingNumbers_EachKindSaysItsWordsInItsColour()
+        {
+            var who = TestFight().Players[0];
+            // 17.6: white 64 damage; CRIT! yellow and bigger; MISS grey; + green; Barrier soak blue; WARDED; COUNTER!.
+            AssertNumber(Event(FightEventKind.Damaged, who, amount: 182), "182", Color.white, 64, "a hit");
+            AssertNumber(Event(FightEventKind.Damaged, who, amount: 182, crit: true), "CRIT!\n182", BattleView.Yellow, 88, "a critical hit");
+            AssertNumber(Event(FightEventKind.Damaged, who, amount: 100, soaked: 100), "100", BattleView.LightBlue, 64, "all of it soaked by a Barrier");
+            AssertNumber(Event(FightEventKind.Damaged, who, amount: 150, soaked: 100), "150", Color.white, 64, "partly soaked: the Health bar shows the rest");
+            AssertNumber(Event(FightEventKind.Missed, who), "MISS", BattleView.MissGrey, 64, "a miss");
+            AssertNumber(Event(FightEventKind.Healed, who, amount: 120), "+120", BattleView.Green, 64, "a heal");
+            AssertNumber(Event(FightEventKind.EffectBlocked, who, "stun"), "WARDED", Color.white, 56, "a Ward stopping an effect");
+            AssertNumber(Event(FightEventKind.CounterAttack, who), "COUNTER!", Color.white, 56, "a counter-attack");
+            AssertNumber(Event(FightEventKind.EffectApplied, who, "offense_up"), "Offense Up", BattleView.Green, 44, "a buff put on (reading R26)");
+            AssertNumber(Event(FightEventKind.EffectApplied, who, "defense_down"), "Defense Down", BattleView.Red, 44, "a bad effect put on (reading R26)");
+        }
+
+        [Test]
+        public void EveryOtherKind_HasNoFloatingNumber()
+        {
+            var who = TestFight().Players[0];
+            var shown = new[] { FightEventKind.Damaged, FightEventKind.Missed, FightEventKind.Healed, FightEventKind.EffectBlocked,
+                                FightEventKind.CounterAttack, FightEventKind.EffectApplied };
+            foreach (FightEventKind kind in Enum.GetValues(typeof(FightEventKind)))
+                if (!shown.Contains(kind))
+                    Assert.IsFalse(BattleView.NumberFor(Event(kind, who, "stun")).HasValue, $"{kind} shows no number over the hero");
+        }
+
+        [Test]
+        public void AHit_PutsItsNumberOverTheHero_MovesTheHealthBarFromPlayback_AndHoldsOneBeat()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var playback = new Playback(fight);
+            var hero = fight.Players[1];
+            var figure = view.Figures[hero];
+
+            var hold = view.ShowEvent(Event(FightEventKind.Damaged, hero, amount: 40), playback, Beat);
+
+            Assert.AreEqual(Beat, hold, "a hit is one beat");
+            Assert.AreEqual("40", view.LastNumber.text);
+            Assert.AreSame(view.Field, view.LastNumber.rectTransform.parent, "the number lives in the field, so a new fight clears it");
+            Assert.AreEqual(figure.Root.anchoredPosition.x, view.LastNumber.rectTransform.anchoredPosition.x, 0.01f, "over the hero");
+            Assert.AreEqual((hero.MaxHealth - 40).ToString(), figure.HealthNumber.text, "Health from Playback, not from the fighter");
+        }
+
+        [Test]
+        public void ABookkeepingEvent_ChangesTheBarAtOnce_HoldsNothing_AndShowsNoNumber()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var playback = new Playback(fight);
+            var hero = fight.Enemies[2];
+
+            var charged = new FightEvent(FightEventKind.ChargeChanged, hero);
+            typeof(FightEvent).GetProperty("Charge").SetValue(charged, 55.0);
+            Assert.AreEqual(0f, view.ShowEvent(charged, playback, Beat), "nothing to wait for");
+            Assert.AreEqual(0.55f, view.Figures[hero].ChargeFill.anchorMax.x, 1e-4, "the charge bar moved now");
+            Assert.IsNull(view.LastNumber, "no number for bookkeeping");
+        }
+
+        [Test]
+        public void ALethalHit_EmptiesTheBarFirst_AndTheBoxGoesOnTheKnockoutBeat()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var playback = new Playback(fight);
+            var hero = fight.Enemies[0];
+            var figure = view.Figures[hero];
+
+            view.ShowEvent(Event(FightEventKind.Damaged, hero, amount: hero.MaxHealth), playback, Beat);
+            Assert.AreEqual("0", figure.HealthNumber.text);
+            Assert.IsTrue(figure.Box.activeSelf, "still standing on the hit's own beat");
+
+            var hold = view.ShowEvent(Event(FightEventKind.KnockedOut, hero), playback, Beat);
+            Assert.AreEqual(Beat, hold);
+            Assert.IsFalse(figure.Box.activeSelf, "the box goes on the knockout beat");
+            Assert.IsTrue(figure.EmptySlot.activeSelf, "its slot stays");
+        }
+
+        [Test]
+        public void TheBanner_SaysWhatAnEnemyDoes_AndAStunnedTurnIsSkippedForEitherSide()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var playback = new Playback(fight);
+
+            view.ShowBanner("Strix uses Mark");
+            Assert.AreEqual("Strix uses Mark", view.BannerText.text);
+            Assert.IsTrue(view.BannerText.transform.IsChildOf(view.Banner), "in the banner zone (R20)");
+
+            foreach (var hero in new[] { fight.Players[0], fight.Enemies[0] })
+            {
+                var hold = view.ShowEvent(Event(FightEventKind.TurnSkipped, hero), playback, Beat);
+                Assert.AreEqual(BattleView.BannerSeconds, hold, "0.8 s");
+                Assert.AreEqual($"{hero.Hero.Name} is stunned: turn skipped", view.BannerText.text);
+            }
+        }
+
+        [Test]
+        public void AnUltimate_ShowsTheOffLook_WithTheHeroesShout_ForThreeTenthsOfASecond_AndOtherSkillsDoNot()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var playback = new Playback(fight);
+            var hero = fight.Players[0];
+
+            Assert.AreEqual(0f, view.ShowEvent(Event(FightEventKind.SkillUsed, hero, button: HeroHQ.Rules.Button.Basic), playback, Beat));
+            Assert.AreEqual(0f, view.ShowEvent(Event(FightEventKind.SkillUsed, hero, button: HeroHQ.Rules.Button.Special), playback, Beat));
+            Assert.AreEqual(0, view.OffLooks, "only an ultimate gets the look");
+
+            var hold = view.ShowEvent(Event(FightEventKind.SkillUsed, hero, button: HeroHQ.Rules.Button.Ultimate), playback, Beat);
+            Assert.AreEqual(BattleView.OffLookSeconds, hold, "0.1 s flash then the band, 0.3 s in all");
+            Assert.AreEqual(1, view.OffLooks);
+            Assert.AreEqual(hero.Hero.Cutin.Shout, view.LastShout);
+            Assert.AreEqual(0.1f, BattleView.FlashSeconds);
+        }
+
+        [Test]
+        public void OverRealFights_TheOffLookComesBeforeTheUltimatesFirstHit_AndEveryEventHoldsTheRightTime()
+        {
+            var data = Real();
+            var players = data.Teams["greek_strike"];
+            var enemies = data.Teams["enemy_crew"];
+            var ultimates = 0;
+            var expectedLooks = 0;
+
+            foreach (var seed in new[] { 1, 2, 3, 4, 5 })
+            {
+                Playback playback = null;
+                Play(data, players, enemies, seed, after: (fight, batch) =>
+                {
+                    if (playback == null)
+                    {
+                        playback = new Playback(fight);
+                        view.ShowFight(fight, data.Formations[players.Formation], data.Formations[enemies.Formation]);
+                    }
+                    var ultimateAction = batch.Count > 0 && batch[0].Kind == FightEventKind.SkillUsed && batch[0].Button == HeroHQ.Rules.Button.Ultimate;
+                    foreach (var e in batch)
+                    {
+                        var hold = view.ShowEvent(e, playback, Beat);
+                        if (e.Kind == FightEventKind.SkillUsed && e.Button == HeroHQ.Rules.Button.Ultimate)
+                        {
+                            expectedLooks++;
+                            ultimates++;
+                            Assert.AreEqual(BattleView.OffLookSeconds, hold, e.ToString());
+                        }
+                        else if (e.Kind == FightEventKind.TurnSkipped) Assert.AreEqual(BattleView.BannerSeconds, hold, e.ToString());
+                        else Assert.AreEqual(Playback.GetsBeat(e.Kind) ? Beat : 0f, hold, e.ToString());
+
+                        if (ultimateAction && (e.Kind == FightEventKind.Damaged || e.Kind == FightEventKind.Missed))
+                            Assert.AreEqual(expectedLooks, view.OffLooks, $"the off look is already on screen at this hit: {e}");
+                    }
+                });
+                // Every event shown: the Health on screen equals the fighters' own for everyone still standing (finding 3, end of fight).
+                foreach (var pair in view.Figures.Where(p => !p.Key.KnockedOut))
+                    Assert.AreEqual(pair.Key.Health.ToString(), pair.Value.HealthNumber.text, $"seed {seed}: {pair.Key}");
+            }
+            Assert.Greater(ultimates, 0, "the five fights fire at least one ultimate");
+            Assert.AreEqual(expectedLooks, view.OffLooks);
+        }
+
+        [Test]
+        public void AnEnemyAction_ShowsTheBannerAndOutlinesItsTarget_AndASkillWithNoTapOutlinesNobody()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var enemy = fight.Enemies[0];
+            var target = fight.Players[2];
+
+            view.ShowEnemyAction(enemy, new Choice(HeroHQ.Rules.Button.Special, target));
+            Assert.AreEqual($"{enemy.Hero.Name} uses {enemy.Hero.Special.Name}", view.BannerText.text);
+            foreach (var pair in view.Figures)
+                Assert.AreEqual(pair.Key == target, pair.Value.TargetRing.activeSelf, pair.Key.ToString());
+
+            view.ClearAim();
+            Assert.IsTrue(view.Figures.Values.All(f => !f.TargetRing.activeSelf));
+
+            view.ShowEnemyAction(enemy, new Choice(HeroHQ.Rules.Button.Ultimate, null));
+            Assert.AreEqual($"{enemy.Hero.Name} uses {enemy.Hero.Ultimate.Name}", view.BannerText.text);
+            Assert.IsTrue(view.Figures.Values.All(f => !f.TargetRing.activeSelf), "nothing to aim at");
+        }
+
+        [Test]
+        public void TheEnemysTarget_GetsARedOutline_ThatGoesAgain()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var figure = view.Figures[fight.Players[0]];
+            Assert.IsFalse(figure.TargetRing.activeSelf, "off to start with");
+            figure.ShowTargeted(true);
+            Assert.IsTrue(figure.TargetRing.activeSelf);
+            Assert.AreEqual(BattleView.Red, figure.TargetRing.GetComponent<UnityEngine.UI.Image>().color);
+            figure.ShowTargeted(false);
+            Assert.IsFalse(figure.TargetRing.activeSelf);
+        }
     }
 }

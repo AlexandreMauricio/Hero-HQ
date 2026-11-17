@@ -8,8 +8,9 @@ using UnityEngine;
 namespace HeroHQ.Screens
 {
     // The one script in the Battle scene (03 Architecture 7.2). BattleSceneBuilder fills in the six data files;
-    // nothing here is set by hand in the editor. P2a-07: the fight plays itself, the computer choosing for both sides,
-    // each action shown at its end result after a fixed wait. P2a-08 adds the beats; P2a-09 hands your side to your taps.
+    // nothing here is set by hand in the editor. P2a-07: the fight plays itself, the computer choosing for both sides.
+    // P2a-08: each action is played event by event, with beats, numbers, the banner and the off look.
+    // P2a-09 hands your side to your taps.
     public class BattleScreen : MonoBehaviour
     {
         [Header("The six data files (set by BattleSceneBuilder)")]
@@ -25,9 +26,6 @@ namespace HeroHQ.Screens
 
         // Phase 2a's fixed teams (04 Phases, OWNER 2026-11-17): the Greek strike against the crew. Team select is 2b.
         const string PlayerTeam = "greek_strike", EnemyTeam = "enemy_crew";
-
-        // P2a-07 only: how long each action stays on screen before the next one. P2a-08 replaces it with beats.
-        const float ActionSeconds = 1f;
 
         public GameData Data { get; private set; }
         public BattleView View { get; private set; }
@@ -71,16 +69,22 @@ namespace HeroHQ.Screens
                 turns = 0;
                 View.ShowFight(fight, Data.Formations[players.Formation], Data.Formations[enemies.Formation]);
                 View.ShowSeed(seed);
-                Play(fight.StartEvents);   // the fight-start leader skills and passives
+                yield return StartCoroutine(Play(fight.StartEvents));   // the fight-start leader skills and passives
 
                 while (fight.Outcome == Outcome.Going)
                 {
-                    Play(fight.AdvanceToChoice());                      // turn starts; a stunned turn is skipped here
+                    yield return StartCoroutine(Play(fight.AdvanceToChoice()));   // turn starts; a stunned turn is skipped here
                     if (fight.Acting == null) break;                    // nobody left to choose: the fight is over
                     View.ShowBar(fight.PredictTurns(barLength));        // NOW first
                     View.ShowActing(fight.Acting);
-                    yield return new WaitForSeconds(ActionSeconds);
-                    Play(fight.Act(EnemyAI.Choose(fight)));             // both sides by the computer until P2a-09
+
+                    var actor = fight.Acting;
+                    var choice = EnemyAI.Choose(fight);                 // both sides by the computer until P2a-09
+                    if (actor.Side == Side.Enemy) View.ShowEnemyAction(actor, choice);   // banner and a red outline on the target (17.7)
+                    yield return new WaitForSeconds(beatSeconds);       // one beat to see who acts (and, for an enemy, whom it aims at)
+                    View.ClearAim();
+
+                    yield return StartCoroutine(Play(fight.Act(choice)));
                     View.ShowActing(null);
                 }
 
@@ -92,12 +96,18 @@ namespace HeroHQ.Screens
             }
         }
 
-        // P2a-07 shows each batch at its end result: Health and charge counted by Playback from the events, then the
-        // figures redrawn. A turn counts when it starts, a skipped one too (as the fight report counts them, 4.10).
-        void Play(IReadOnlyList<FightEvent> batch)
+        // Shows a batch of events one at a time (P2a-08). BattleView.ShowEvent takes each event into Playback, draws it
+        // and says how long to wait: a beat for what shows over a hero, 0.3 s for an ultimate's off look, 0.8 s for a
+        // skipped turn's banner, nothing for bookkeeping. At the end the effect chips and the Barrier are redrawn from
+        // the fighters. A turn counts when it starts, a skipped one too (as the fight report counts them, 4.10).
+        IEnumerator Play(IReadOnlyList<FightEvent> batch)
         {
-            playback.Apply(batch);
             turns += batch.Count(e => e.Kind == FightEventKind.TurnStarted);
+            foreach (var e in batch)
+            {
+                var hold = View.ShowEvent(e, playback, beatSeconds);
+                if (hold > 0) yield return new WaitForSeconds(hold);
+            }
             View.SyncAfterAction(fight, playback);
         }
     }

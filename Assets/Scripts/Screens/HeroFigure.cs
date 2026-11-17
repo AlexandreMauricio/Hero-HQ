@@ -45,6 +45,12 @@ namespace HeroHQ.Screens
             BattleView.Panel("Inside", slot.rectTransform, BattleView.Background).rectTransform.Inset(4);
             EmptySlot = slot.gameObject;
 
+            // The enemy's aim sits just outside the acting ring, so both can show at once.
+            var aim = BattleView.Panel("Target ring", Root, BattleView.Red);
+            aim.rectTransform.Inset(-16);
+            TargetRing = aim.gameObject;
+            TargetRing.SetActive(false);
+
             var ring = BattleView.Panel("Acting ring", Root, BattleView.Gold);
             ring.rectTransform.Inset(-8);
             Ring = ring.gameObject;
@@ -169,12 +175,18 @@ namespace HeroHQ.Screens
 
         public void ShowActing(bool acting) => Ring.SetActive(acting && !KnockedOut);
 
+        /// <summary>A red outline round the box: where the enemy's skill is about to land (17.7). Off unless asked.</summary>
+        public GameObject TargetRing { get; }
+
+        public void ShowTargeted(bool targeted) => TargetRing.SetActive(targeted && !KnockedOut);
+
         /// <summary>The hero fell: the box goes, the grey empty slot stays, nobody moves into it (02 GDD 2, 17.6).</summary>
         public void ShowKnockedOut()
         {
             KnockedOut = true;
             Box.SetActive(false);
             Ring.SetActive(false);
+            TargetRing.SetActive(false);
         }
     }
 }

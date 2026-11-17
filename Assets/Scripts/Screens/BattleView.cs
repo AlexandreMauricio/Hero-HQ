@@ -139,8 +139,7 @@ namespace HeroHQ.Screens
                     figure.ShowKnockedOut();
                     continue;
                 }
-                var barrier = hero.Effects.FirstOrDefault(e => e.Kind == "barrier")?.Amount ?? 0;
-                figure.ShowHealth(health, hero.MaxHealth, barrier);
+                figure.ShowHealth(health, hero.MaxHealth, BarrierOf(hero));
                 figure.ShowCharge(playback.Charge(hero));
                 figure.ShowEffects(hero.Effects, hero.TurnsStarted);
             }
@@ -150,6 +149,183 @@ namespace HeroHQ.Screens
         public void ShowActing(Fighter acting)
         {
             foreach (var pair in figures) pair.Value.ShowActing(pair.Key == acting);
+        }
+
+        // ---- the show (P2a-08; 02 GDD 17.6 and 17.7) -----------------------------------------------------------------
+
+        /// <summary>How long the banner stays, the white flash of the <i>off</i> look, the whole look, and a floating number.</summary>
+        public const float BannerSeconds = 0.8f, FlashSeconds = 0.1f, OffLookSeconds = 0.3f, NumberSeconds = 1f;
+
+        public static readonly Color Yellow = new Color32(0xFF, 0xE2, 0x3A, 0xFF);
+        public static readonly Color MissGrey = new Color32(0xB4, 0xBA, 0xC6, 0xFF);
+
+        /// <summary>What a floating number says, in which colour and how big (reference pixels).</summary>
+        public readonly struct FloatingText
+        {
+            public FloatingText(string text, Color color, int size)
+            {
+                Text = text;
+                Color = color;
+                Size = size;
+            }
+
+            public string Text { get; }
+            public Color Color { get; }
+            public int Size { get; }
+        }
+
+        /// <summary>The words of the banner now showing (null until the first one).</summary>
+        public Text BannerText { get; private set; }
+        /// <summary>The newest floating number (null until the first).</summary>
+        public Text LastNumber { get; private set; }
+        /// <summary>How many times the <i>off</i> look has played, and the shout of the last one.</summary>
+        public int OffLooks { get; private set; }
+        public string LastShout { get; private set; }
+
+        /// <summary>
+        /// What an event shows over its hero, or null when it shows nothing (17.6): a hit in white 64 px, a critical hit
+        /// "CRIT!" over the number in yellow and bigger, a hit the Barrier soaked whole in light blue, MISS in grey, a heal
+        /// "+N" in green, WARDED, COUNTER!, and (reading R26) the effect put on in words, green for a buff, red for a bad
+        /// one, because "effect put on" gets a beat and a beat needs something to look at.
+        /// </summary>
+        public static FloatingText? NumberFor(FightEvent e)
+        {
+            switch (e.Kind)
+            {
+                case FightEventKind.Damaged:
+                    if (e.Crit) return new FloatingText($"CRIT!\n{e.Amount}", Yellow, 88);
+                    var soakedWhole = e.Soaked > 0 && e.Soaked >= e.Amount;
+                    return new FloatingText(e.Amount.ToString(), soakedWhole ? LightBlue : Color.white, 64);
+                case FightEventKind.Missed:
+                    return new FloatingText("MISS", MissGrey, 64);
+                case FightEventKind.Healed:
+                    return new FloatingText("+" + e.Amount, Green, 64);
+                case FightEventKind.EffectBlocked:
+                    return new FloatingText("WARDED", Color.white, 56);
+                case FightEventKind.CounterAttack:
+                    return new FloatingText("COUNTER!", Color.white, 56);
+                case FightEventKind.EffectApplied:
+                    return new FloatingText(SkillText.Words(e.Effect), Effects.IsBad(e.Effect) ? Red : Green, 44);
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Shows one event of an action and says how many seconds the screen should now wait. Takes the event into
+        /// <paramref name="playback"/> itself, then draws from it: a hit or a heal moves that hero's Health bar to the
+        /// Health Playback counts (finding 3, never the fighter's own), a charge change moves the gold bar, a knockout
+        /// takes the box away (the hit before it only emptied the bar), and anything that shows over a hero floats its
+        /// number there. Waits: a beat for the kinds <see cref="Playback.GetsBeat"/> names, 0.3 s for an ultimate's
+        /// <i>off</i> look, 0.8 s for a skipped turn's banner, nothing for bookkeeping. Effect chips and the Barrier
+        /// are redrawn after the whole action by <see cref="SyncAfterAction"/> (P2a-08's plan).
+        /// </summary>
+        public float ShowEvent(FightEvent e, Playback playback, float beatSeconds)
+        {
+            playback.Apply(e);
+            HeroFigure figure = null;
+            if (e.Who != null) figures.TryGetValue(e.Who, out figure);
+
+            switch (e.Kind)
+            {
+                case FightEventKind.SkillUsed:
+                    if (e.Button != HeroHQ.Rules.Button.Ultimate) return 0;
+                    ShowOffLook(e.Who.Hero.Cutin.Shout);
+                    return OffLookSeconds;
+                case FightEventKind.TurnSkipped:
+                    ShowBanner($"{e.Who.Hero.Name} is stunned: turn skipped");
+                    return BannerSeconds;
+                case FightEventKind.ChargeChanged:
+                    figure?.ShowCharge(playback.Charge(e.Who));
+                    break;
+                case FightEventKind.Damaged:
+                case FightEventKind.Healed:
+                    figure?.ShowHealth(playback.Health(e.Who), e.Who.MaxHealth, BarrierOf(e.Who));
+                    break;
+                case FightEventKind.KnockedOut:
+                    figure?.ShowKnockedOut();
+                    break;
+            }
+
+            var number = NumberFor(e);
+            if (number.HasValue && figure != null) FloatNumber(figure, number.Value);
+            return Playback.GetsBeat(e.Kind) ? beatSeconds : 0;
+        }
+
+        static int BarrierOf(Fighter hero) => hero.Effects.FirstOrDefault(e => e.Kind == "barrier")?.Amount ?? 0;
+
+        void FloatNumber(HeroFigure figure, FloatingText number)
+        {
+            var label = Label("Number", Field, number.Text, number.Size, number.Color, TextAnchor.MiddleCenter);
+            label.fontStyle = FontStyle.Bold;
+            label.gameObject.AddComponent<Outline>().effectDistance = new Vector2(3, -3);   // readable on any box
+            var rect = label.rectTransform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1);
+            rect.sizeDelta = new Vector2(HeroFigure.Width, 220);
+            rect.anchoredPosition = figure.Root.anchoredPosition + new Vector2(0, 20);
+            var floater = label.gameObject.AddComponent<Floater>();
+            floater.seconds = NumberSeconds;
+            floater.rise = 70;
+            LastNumber = label;
+        }
+
+        /// <summary>
+        /// The banner just under the turn bar (R20): "Strix uses Mark" for an enemy action, "&lt;name&gt; is stunned:
+        /// turn skipped". It replaces the one before and goes by itself after <see cref="BannerSeconds"/>.
+        /// </summary>
+        public void ShowBanner(string text)
+        {
+            Clear(Banner);
+            var box = Panel("Banner box", Banner, new Color(0, 0, 0, 0.75f));
+            BannerText = Label("Text", box.rectTransform, text, 48, Color.white, TextAnchor.MiddleCenter);
+            BannerText.fontStyle = FontStyle.Bold;
+            var floater = box.gameObject.AddComponent<Floater>();
+            floater.seconds = BannerSeconds;
+            floater.fade = false;
+        }
+
+        /// <summary>
+        /// An enemy is about to act (17.7): the banner says what it does and its target is outlined in red; the screen
+        /// holds a beat, then calls <see cref="ClearAim"/>. A skill with no tap (it needs no chosen hero) outlines nobody.
+        /// </summary>
+        public void ShowEnemyAction(Fighter actor, Choice choice)
+        {
+            var hero = actor.Hero;
+            var skill = choice.Button == HeroHQ.Rules.Button.Basic ? hero.Basic
+                      : choice.Button == HeroHQ.Rules.Button.Special ? hero.Special : hero.Ultimate;
+            ShowBanner($"{hero.Name} uses {skill.Name}");
+            if (choice.Target != null && figures.TryGetValue(choice.Target, out var figure)) figure.ShowTargeted(true);
+        }
+
+        public void ClearAim()
+        {
+            foreach (var figure in figures.Values) figure.ShowTargeted(false);
+        }
+
+        /// <summary>
+        /// The <i>off</i> look of an ultimate (01 Vision, 17.6): a 0.1 s white flash over the whole screen, then the
+        /// hero's shout across a black band in the middle, 0.3 s in all. The real cut-in is 2b's.
+        /// </summary>
+        void ShowOffLook(string shout)
+        {
+            var band = Panel("Off look", Canvas.transform, Color.black);
+            var rect = band.rectTransform;
+            rect.anchorMin = new Vector2(0, 0.5f);
+            rect.anchorMax = new Vector2(1, 0.5f);
+            rect.sizeDelta = new Vector2(0, 220);
+            rect.anchoredPosition = Vector2.zero;
+            var text = Label("Shout", rect, shout, 110, Color.white, TextAnchor.MiddleCenter);
+            text.fontStyle = FontStyle.Bold;
+            var life = band.gameObject.AddComponent<Floater>();
+            life.seconds = OffLookSeconds;
+            life.fade = false;
+
+            var flash = Panel("Off look flash", Canvas.transform, Color.white);
+            var flashLife = flash.gameObject.AddComponent<Floater>();
+            flashLife.seconds = FlashSeconds;
+
+            OffLooks++;
+            LastShout = shout;
         }
 
         // ---- the turn-order bar (17.4) ---------------------------------------------------------------------------
