@@ -46,7 +46,7 @@ namespace HeroHQ.Rules
     /// <summary>
     /// Does one skill (02 GDD 6 and 7, 03 Architecture 4.5): its pieces in the written order. Built so far:
     /// Damage pieces, the hit and crit rolls, the Barrier, knockouts (P1-09); Heal, Apply effect, Clear, Turn
-    /// meter, the six piece conditions and ultimate charge (P1-10). Counters come with P1-11; bonuses with P1-12–14.
+    /// meter, the six piece conditions and ultimate charge (P1-10); counter-attacks (P1-11). Bonuses come with P1-12–14.
     ///
     /// A piece's condition is checked per target as the piece runs; when it is false the piece skips that
     /// target without touching it (no roll).
@@ -113,14 +113,32 @@ namespace HeroHQ.Rules
             var skill = Skill(actor, button);
             var tuning = fight.Data.Tuning;
             var events = new List<FightEvent> { new FightEvent(FightEventKind.SkillUsed, actor) { Button = button } };
-            var rolled = new Dictionary<Fighter, bool?>();       // per enemy, this skill: null = missed, else crit?
+
+            // the ultimate's charge goes back to 0 as it starts, so the meter empties with the cut-in (02 GDD 4)
+            if (button == Button.Ultimate) events.AddRange(SetCharge(actor, 0));
+
+            var rolled = Resolve(fight, actor, skill, chosen, events);
+
+            // action charge, even on a miss (02 GDD 4); the ultimate gives none
+            if (button == Button.Basic) events.AddRange(SetCharge(actor, actor.Charge + tuning["charge_basic"]));
+            if (button == Button.Special) events.AddRange(SetCharge(actor, actor.Charge + tuning["charge_special"]));
+
+            // counters, after the whole skill (02 GDD 2 step 4)
+            Counters(fight, actor, rolled, events);
+            return events;
+        }
+
+        /// <summary>
+        /// The pieces of one skill, in the written order, added to <paramref name="events"/>; shared by a turn's
+        /// skill and a counter-attack. Returns, per enemy the skill touched, null = missed, else crit?
+        /// </summary>
+        static Dictionary<Fighter, bool?> Resolve(Fight fight, Fighter actor, SkillDef skill, Fighter chosen, List<FightEvent> events)
+        {
+            var rolled = new Dictionary<Fighter, bool?>();
 
             // "first attack" (02 GDD 7.3) is this skill if the hero hadn't attacked before it, hit or miss (R4)
             var firstAttack = !actor.Attacked;
             if (skill.Pieces.Any(p => EnemyTargets.Contains(p.Target))) actor.Attacked = true;
-
-            // the ultimate's charge goes back to 0 as it starts, so the meter empties with the cut-in (02 GDD 4)
-            if (button == Button.Ultimate) events.AddRange(SetCharge(actor, 0));
 
             foreach (var piece in skill.Pieces)
             {
@@ -135,11 +153,33 @@ namespace HeroHQ.Rules
                     events.AddRange(Do(fight, actor, piece, target, scale, crit.Value));
                 }
             }
+            return rolled;
+        }
 
-            // action charge, even on a miss (02 GDD 4); the ultimate gives none
-            if (button == Button.Basic) events.AddRange(SetCharge(actor, actor.Charge + tuning["charge_basic"]));
-            if (button == Button.Special) events.AddRange(SetCharge(actor, actor.Charge + tuning["charge_special"]));
-            return events;
+        /// <summary>
+        /// Counter-attacks (02 GDD 7.4, 10.6 q. 3). After the skill is done, every enemy of <paramref name="attacker"/>
+        /// that the skill hit, still stands and holds a Counter hits back, once, in slot order: its Counter is used
+        /// up and it uses its whole Basic with the attacker as the chosen hero (Taunt and the front row don't
+        /// apply: a counter is not a choice). It gives no action charge (only <see cref="Use"/> adds that) and
+        /// <see cref="Resolve"/> starts no counters, so a counter never triggers another. Nobody is left to hit
+        /// once the attacker is knocked out; the holders after that keep their Counter (reading R11).
+        /// </summary>
+        static void Counters(Fight fight, Fighter attacker, Dictionary<Fighter, bool?> rolled, List<FightEvent> events)
+        {
+            foreach (var holder in Targeting.Opponents(fight, attacker))
+            {
+                if (attacker.KnockedOut) return;
+                if (!rolled.TryGetValue(holder, out var hit) || hit == null) continue;    // not touched, or missed
+                if (!holder.Effects.Any(e => e.Kind == "counter")) continue;
+
+                var basic = holder.Hero.Basic;
+                if (basic.Pieces.Any(p => p.Target == "ally"))
+                    throw new NotSupportedException($"{holder.Hero.Id}'s Basic aims at a chosen ally, so it can't be a counter-attack (a counter has no tapped hero).");
+
+                events.Add(new FightEvent(FightEventKind.CounterAttack, holder));
+                events.AddRange(Effects.UseUp(holder, "counter"));
+                Resolve(fight, holder, basic, attacker, events);
+            }
         }
 
         /// <summary>

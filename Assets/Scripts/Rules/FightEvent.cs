@@ -42,6 +42,12 @@ namespace HeroHQ.Rules
         EffectExpired,
         /// <summary>An effect was spent: a Ward that stopped something, a Stun whose turn was skipped.</summary>
         EffectUsedUp,
+        /// <summary>
+        /// A Counter fires: this hero (<see cref="FightEvent.Who"/>) hits back with their Basic at the attacker. The
+        /// Counter's <see cref="EffectUsedUp"/> and the Basic's own hits follow; no <see cref="SkillUsed"/>, since
+        /// a counter is not a turn (02 GDD 7.4). The screen shows "COUNTER!" over this hero.
+        /// </summary>
+        CounterAttack,
         /// <summary>All five enemies are knocked out (02 GDD 2, step 6).</summary>
         FightWon,
         /// <summary>All five of your heroes are knocked out.</summary>
