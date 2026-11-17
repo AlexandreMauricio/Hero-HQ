@@ -19,7 +19,7 @@ namespace HeroHQ.Tests
     //   Squad B (enemies, 2–3, leader fenn):  fenn 120 · gia 95 | hal 105 · ira 85 · jax 100
     public class WholeFightTests
     {
-        const int MaxTurns = 300;                 // 02 GDD 11 test 16 / 03 Architecture 4.10: the safety stop
+        const int MaxTurns = TestFights.MaxTurns; // 02 GDD 11 test 16 / 03 Architecture 4.10: the safety stop
 
         static string Hero(string id, int speed, string side, string pantheon, System.Action<JObject> edit = null)
         {
@@ -88,31 +88,11 @@ namespace HeroHQ.Tests
             return TestData.Load(heroes: heroes, teams: teams);
         }
 
-        /// <summary>One played fight: the fight, every event in order (the fight-start ones first) and how many turns were started.</summary>
-        sealed class Played
-        {
-            public Fight Fight;
-            public List<FightEvent> Events = new List<FightEvent>();
-            public int Turns => Events.Count(e => e.Kind == FightEventKind.TurnStarted);
-            public List<string> Text => Events.Select(e => e.ToString()).ToList();
-        }
-
-        /// <summary>The loop of 03 Architecture 4.3 with the AI choosing for whichever side is acting, until the fight is decided or the turn limit.</summary>
-        static Played Play(int seed)
+        /// <summary>Squad A against squad B, the AI on both sides, to a winner or the turn limit (the loop is shared: <see cref="TestFights.Play"/>).</summary>
+        static TestFights.PlayedFight Play(int seed)
         {
             var data = Data();
-            var fight = Fight.Create(data, data.Teams["squad_a"], data.Teams["squad_b"], seed);
-            var played = new Played { Fight = fight };
-            played.Events.AddRange(fight.StartEvents);
-
-            while (fight.Outcome == Outcome.Going && played.Turns < MaxTurns)
-            {
-                played.Events.AddRange(fight.AdvanceToChoice());
-                if (fight.Outcome != Outcome.Going) break;
-                Assert.IsFalse(fight.Acting.KnockedOut, "a knocked-out hero never gets a turn");
-                played.Events.AddRange(fight.Act(EnemyAI.Choose(fight)));
-            }
-            return played;
+            return TestFights.Play(data, data.Teams["squad_a"], data.Teams["squad_b"], seed);
         }
 
         // ---- test 16: to a winner ----------------------------------------------------------------------------------

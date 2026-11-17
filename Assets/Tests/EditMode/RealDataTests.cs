@@ -212,16 +212,8 @@ namespace HeroHQ.Tests
         {
             for (var seed = 1; seed <= 5; seed++)
             {
-                var fight = Fight.Create(data, data.Teams[team], data.Teams["enemy_crew"], seed);
-                var turns = 0;
-                while (fight.Outcome == Outcome.Going && turns < 300)
-                {
-                    fight.AdvanceToChoice();
-                    if (fight.Outcome != Outcome.Going) break;
-                    fight.Act(EnemyAI.Choose(fight));
-                    turns++;
-                }
-                Assert.AreNotEqual(Outcome.Going, fight.Outcome, $"{team}, seed {seed}: no winner in 300 turns");
+                var played = TestFights.Play(data, data.Teams[team], data.Teams["enemy_crew"], seed);
+                Assert.AreNotEqual(Outcome.Going, played.Fight.Outcome, $"{team}, seed {seed}: no winner in {TestFights.MaxTurns} turns");
             }
         }
 

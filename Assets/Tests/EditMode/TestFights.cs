@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using HeroHQ.Rules;
+using HeroHQ.Rules.Data;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using NUnit.Framework;
 
 namespace HeroHQ.Tests
 {
@@ -42,5 +45,42 @@ namespace HeroHQ.Tests
 
         /// <summary>The acting hero's Basic, aimed at the first hero it may choose (Taunt, then the front row: P1-09's <c>Options</c>).</summary>
         public static Choice Basic(Fight fight) => new Choice(Button.Basic, fight.Options[0].Choosable[0]);
+
+        /// <summary>The safety stop of 03 Architecture 4.10: a fight still going after this many turns is "no winner".</summary>
+        public const int MaxTurns = 300;
+
+        /// <summary>One played fight: the fight, every event in order (the fight-start ones first) and how many turns were started.</summary>
+        public sealed class PlayedFight
+        {
+            public Fight Fight;
+            public List<FightEvent> Events = new List<FightEvent>();
+            /// <summary>Every hero's turn, a skipped (stunned) one included (4.10).</summary>
+            public int Turns => Events.Count(e => e.Kind == FightEventKind.TurnStarted);
+            public List<string> Text => Events.Select(e => e.ToString()).ToList();
+        }
+
+        /// <summary>
+        /// The loop of 03 Architecture 4.3 with <see cref="EnemyAI"/> choosing for whichever side is acting, until the
+        /// fight is decided or <paramref name="maxTurns"/> turns have started. The one copy of the loop that the whole-fight
+        /// tests, the real-data smoke test and the fight report share.
+        /// </summary>
+        public static PlayedFight Play(GameData data, TeamDef players, TeamDef enemies, int seed, int maxTurns = MaxTurns)
+        {
+            var fight = Fight.Create(data, players, enemies, seed);
+            var played = new PlayedFight { Fight = fight };
+            played.Events.AddRange(fight.StartEvents);
+            var turns = 0;
+
+            while (fight.Outcome == Outcome.Going && turns < maxTurns)
+            {
+                var advanced = fight.AdvanceToChoice();
+                played.Events.AddRange(advanced);
+                turns += advanced.Count(e => e.Kind == FightEventKind.TurnStarted);
+                if (fight.Outcome != Outcome.Going) break;
+                Assert.IsFalse(fight.Acting.KnockedOut, "a knocked-out hero never gets a turn");
+                played.Events.AddRange(fight.Act(EnemyAI.Choose(fight)));
+            }
+            return played;
+        }
     }
 }
