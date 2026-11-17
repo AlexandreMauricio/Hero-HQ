@@ -42,6 +42,8 @@ namespace HeroHQ.Rules
         EffectExpired,
         /// <summary>An effect was spent: a Ward that stopped something, a Stun whose turn was skipped.</summary>
         EffectUsedUp,
+        /// <summary>A rule took an effect away whole: Momentum, after a skill that missed every target (<see cref="FightEvent.Effect"/>).</summary>
+        EffectLost,
         /// <summary>
         /// A Counter fires: this hero (<see cref="FightEvent.Who"/>) hits back with their Basic at the attacker. The
         /// Counter's <see cref="EffectUsedUp"/> and the Basic's own hits follow; no <see cref="SkillUsed"/>, since

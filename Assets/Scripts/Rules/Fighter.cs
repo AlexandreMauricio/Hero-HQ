@@ -96,6 +96,12 @@ namespace HeroHQ.Rules
         /// <summary>The hero has used a skill aimed at an enemy this fight, hit or miss (reading R4): "first attack" is over.</summary>
         public bool Attacked { get; set; }
 
+        /// <summary>
+        /// The hero has dropped below half Health while standing, once this fight (P1-14): the "ally below half"
+        /// triggers (Halvard's Taunt) fire once per ally, the first time only (02 GDD 8).
+        /// </summary>
+        public bool FellBelowHalf { get; set; }
+
         /// <summary>A knocked-out hero is out of the turn order and never fills.</summary>
         public bool KnockedOut { get; set; }
 

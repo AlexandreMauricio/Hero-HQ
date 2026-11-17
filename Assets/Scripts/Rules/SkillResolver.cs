@@ -47,7 +47,7 @@ namespace HeroHQ.Rules
     /// Does one skill (02 GDD 6 and 7, 03 Architecture 4.5): its pieces in the written order. Built so far:
     /// Damage pieces, the hit and crit rolls, the Barrier, knockouts (P1-09); Heal, Apply effect, Clear, Turn
     /// meter, the six piece conditions and ultimate charge (P1-10); counter-attacks (P1-11); fixed leader and passive bonuses in damage and heals (P1-12);
-    /// moment bonuses and triggered pieces (P1-13). Momentum: P1-14.
+    /// moment bonuses and triggered pieces (P1-13); Momentum and the attack-hits and ally-below-half triggers (P1-14).
     ///
     /// A piece's condition is checked per target as the piece runs; when it is false the piece skips that
     /// target without touching it (no roll).
@@ -162,8 +162,48 @@ namespace HeroHQ.Rules
             }
 
             // "first attack" (02 GDD 7.3) is the whole of the first skill aimed at an enemy, hit or miss (R4): it ends here
-            if (skill.Pieces.Any(p => EnemyTargets.Contains(p.Target))) actor.Attacked = true;
+            if (skill.Pieces.Any(p => EnemyTargets.Contains(p.Target)))
+            {
+                actor.Attacked = true;
+                events.AddRange(AfterAttack(fight, actor, rolled));
+            }
             return rolled;
+        }
+
+        /// <summary>
+        /// What a finished skill aimed at an enemy sets off (02 GDD 8, 7.4; 10.6 q. 3 and 7). If it hit at least one
+        /// enemy, the owner's "attack hits" triggers fire, once for the skill, not once per target (Thordis's
+        /// Momentum: +1 stack). If it touched enemies and missed every one, the owner loses all their Momentum. A
+        /// skill that touched nobody (every piece's condition was false) does neither (reading R15). Skills not
+        /// aimed at an enemy never get here, so a heal or a self-buff leaves Momentum alone (q. 7). A counter-attack
+        /// comes through here too (q. 3).
+        /// </summary>
+        static IReadOnlyList<FightEvent> AfterAttack(Fight fight, Fighter actor, Dictionary<Fighter, bool?> rolled)
+        {
+            var events = new List<FightEvent>();
+            if (rolled.Values.Any(result => result != null))
+            {
+                foreach (var trigger in Bonuses.Triggers(fight.Leader(actor.Side), actor.Hero, "attack_hits", fromLeader: true, fromPassive: true))
+                    events.AddRange(Trigger(fight, actor, trigger));
+            }
+            else if (rolled.Count > 0)
+                events.AddRange(Effects.Lose(actor, "momentum"));
+            return events;
+        }
+
+        /// <summary>
+        /// The "ally below half" triggers (02 GDD 8): the moment a hero's hit leaves them standing below half
+        /// their max Health, for the first time this fight, every other standing hero on their side fires its own
+        /// (the leader's that name them, then their passive). The skill that did it carries on with the targets it
+        /// already had: its pieces' targets were fixed before it hit.
+        /// </summary>
+        static IReadOnlyList<FightEvent> AllyBelowHalf(Fight fight, Fighter dropped)
+        {
+            var events = new List<FightEvent>();
+            foreach (var owner in Targeting.Allies(fight, dropped, includeSelf: false))
+                foreach (var trigger in Bonuses.Triggers(fight.Leader(owner.Side), owner.Hero, "ally_below_half", fromLeader: true, fromPassive: true))
+                    events.AddRange(Trigger(fight, owner, trigger));
+            return events;
         }
 
         /// <summary>
@@ -241,7 +281,9 @@ namespace HeroHQ.Rules
 
                 case "effect":
                     // a Barrier holds percent of the holder's max Health, halves up (reading R9)
-                    var size = piece.Effect == "barrier" ? Whole(target.MaxHealth * piece.Percent.Value * scale / 100) : 0;
+                    // Momentum's number is the most stacks it may have (momentum_max, P1-14)
+                    var size = piece.Effect == "barrier" ? Whole(target.MaxHealth * piece.Percent.Value * scale / 100)
+                             : piece.Effect == "momentum" ? Whole(fight.Data.Tuning["momentum_max"]) : 0;
                     return Effects.Apply(target, piece.Effect, piece.Turns ?? 0, size);
 
                 case "clear":
@@ -364,17 +406,26 @@ namespace HeroHQ.Rules
                 var lostPercent = (before - target.Health) * 100.0 / target.MaxHealth;
                 events.AddRange(SetCharge(target, target.Charge + lostPercent * tuning["charge_per_hurt"]));
             }
+
+            // the first time the hero is left standing below half Health (02 GDD 8): the allies' triggers fire now (P1-14)
+            if (!target.KnockedOut && !target.FellBelowHalf && target.Health * 2 < target.MaxHealth)
+            {
+                target.FellBelowHalf = true;
+                events.AddRange(AllyBelowHalf(fight, target));
+            }
             return events;
         }
 
         /// <summary>
         /// The attacker's % changes to damage dealt: the fixed leader and passive bonus (P1-12), then Offense Up +,
-        /// Offense Down − (02 GDD 7.4). DamageMath adds them all and applies the sum once (02 GDD 6). Momentum: P1-14.
+        /// Offense Down − and Momentum, `momentum_step` % per stack (02 GDD 7.4, P1-14). DamageMath adds them all
+        /// and applies the sum once (02 GDD 6).
         /// </summary>
         static IEnumerable<double> OffenseChanges(Fighter actor, IReadOnlyDictionary<string, double> tuning) =>
             new[] { actor.DamageBonus }.Concat(
                 actor.Effects.Select(e => e.Kind == "offense_up" ? tuning["offense_change"]
-                                        : e.Kind == "offense_down" ? -tuning["offense_change"] : 0));
+                                        : e.Kind == "offense_down" ? -tuning["offense_change"]
+                                        : e.Kind == "momentum" ? e.Amount * tuning["momentum_step"] : 0));
 
         /// <summary>The target's % changes to damage taken: Defense Up −, Defense Down + (02 GDD 7.4).</summary>
         static IEnumerable<double> DefenseChanges(Fighter target, IReadOnlyDictionary<string, double> tuning) =>

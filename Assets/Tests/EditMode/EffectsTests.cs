@@ -212,7 +212,7 @@ namespace HeroHQ.Tests
         public void StunAndMomentum_HaveNoTurnCount_TheyNeverRunOut()
         {
             var hero = Bare();
-            Effects.Apply(hero, "momentum", 0);
+            Effects.Apply(hero, "momentum", 0, 5);   // the amount of Momentum is its most stacks (P1-14)
             Effects.Apply(hero, "stun", 0);
             hero.TurnsStarted = 50;
 

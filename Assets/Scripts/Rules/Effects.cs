@@ -26,7 +26,7 @@ namespace HeroHQ.Rules
         /// </summary>
         public int EndsAfterTurn { get; internal set; }
 
-        /// <summary>Barrier: how much damage it can still soak. 0 for every other effect.</summary>
+        /// <summary>Barrier: how much damage it can still soak. Momentum: how many stacks it has. 0 for every other effect.</summary>
         public int Amount { get; internal set; }
 
         internal Effect Copy() => (Effect)MemberwiseClone();
@@ -64,7 +64,8 @@ namespace HeroHQ.Rules
         ///    (a Barrier also keeps the bigger amount). One copy of each, new ones go last (the order is what
         ///    "Clear, newest first" will use).
         /// <paramref name="turns"/> is how many of the holder's turns it lasts (ignored for Stun and Momentum,
-        /// which have no turn count); <paramref name="amount"/> is a Barrier's size in Health.
+        /// which have no turn count); <paramref name="amount"/> is a Barrier's size in Health, or, for Momentum,
+        /// the most stacks it may have (<c>momentum_max</c>): each application adds one stack (P1-14).
         /// </summary>
         public static IReadOnlyList<FightEvent> Apply(Fighter target, string kind, int turns, int amount = 0)
         {
@@ -96,7 +97,14 @@ namespace HeroHQ.Rules
 
             var endsAfter = kind == "stun" || kind == "momentum" ? NoEnd : target.TurnsStarted + turns;
             var existing = target.EffectList.FirstOrDefault(e => e.Kind == kind);
-            if (existing == null)
+            if (kind == "momentum")
+            {
+                // Momentum is the one effect that stacks (02 GDD 7.4): +1 stack each time, up to the most allowed
+                // (`amount`, = momentum_max). It keeps its stacks in `Amount`.
+                if (existing == null) target.EffectList.Add(new Effect(kind, endsAfter, Math.Min(1, amount)));
+                else existing.Amount = Math.Min(existing.Amount + 1, amount);
+            }
+            else if (existing == null)
                 target.EffectList.Add(new Effect(kind, endsAfter, amount));
             else
             {
@@ -134,6 +142,18 @@ namespace HeroHQ.Rules
             fighter.EffectList.Remove(effect);
             events.Add(new FightEvent(FightEventKind.EffectUsedUp, fighter, kind));
             return events;
+        }
+
+        /// <summary>
+        /// A rule takes an effect away whole (Momentum after a skill that missed every target, 02 GDD 7.4). Says
+        /// nothing if the hero doesn't have it.
+        /// </summary>
+        public static IReadOnlyList<FightEvent> Lose(Fighter fighter, string kind)
+        {
+            var effect = fighter.EffectList.FirstOrDefault(e => e.Kind == kind);
+            if (effect == null) return new FightEvent[0];
+            fighter.EffectList.Remove(effect);
+            return new[] { new FightEvent(FightEventKind.EffectLost, fighter, kind) };
         }
 
         /// <summary>

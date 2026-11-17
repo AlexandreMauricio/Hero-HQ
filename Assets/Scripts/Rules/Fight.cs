@@ -61,7 +61,7 @@ namespace HeroHQ.Rules
     /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07), the
     /// buttons and Damage pieces (P1-09, SkillResolver), the other pieces, cooldown and charge (P1-10);
     /// counters (P1-11), the fixed leader and passive bonuses (P1-12); fight-start and turn-start triggers and
-    /// moment bonuses (P1-13). The attack-hits and ally-below-half triggers come with P1-14.
+    /// moment bonuses (P1-13); Momentum and the attack-hits and ally-below-half triggers (P1-14).
     /// </summary>
     public class Fight
     {
@@ -136,7 +136,7 @@ namespace HeroHQ.Rules
         }
 
         /// <summary>The named leader of one side (02 GDD 8).</summary>
-        HeroDef Leader(Side side) => side == Side.Player ? playerLeader : enemyLeader;
+        internal HeroDef Leader(Side side) =>side == Side.Player ? playerLeader : enemyLeader;
 
         static List<Fighter> Team(GameData data, TeamDef team, Side side)
         {
