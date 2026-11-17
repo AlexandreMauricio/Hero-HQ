@@ -11,7 +11,8 @@ namespace HeroHQ.Screens
     // Builds every box of the battle screen by code under one Canvas, and knows no rules (03 Architecture 7.2).
     // P2a-04: the canvas scaled from 1920 x 1080, the safe-area panel and the four zones of 02 GDD 17.3.
     // P2a-07: the ten figures at their formation's places, the turn-order bar (17.4, no sliding yet), the seed in a
-    // corner and the end text. P2a-08 adds the beats, numbers and banner; P2a-09 the buttons and the info strip.
+    // corner and the end text. P2a-08: the beats, numbers and banner. P2a-09: the three buttons, the turn line and the
+    // info strip in the bottom band, and the taps (passed on to BattleScreen through HeroTapped, EmptyTapped, ButtonTapped).
     public class BattleView
     {
         const float ReferenceWidth = 1920, ReferenceHeight = 1080;
@@ -28,6 +29,9 @@ namespace HeroHQ.Screens
         internal static readonly Color Track = new Color32(0x10, 0x13, 0x1A, 0xFF);
         internal static readonly Color HealthColor = new Color32(0x8E, 0x9B, 0xB0, 0xFF);
         internal static readonly Color Background = new Color32(0x1E, 0x24, 0x30, 0xFF);   // the camera's clear colour
+        /// <summary>17.1: amber is a hit chance below 100 %.</summary>
+        public static readonly Color Amber = new Color32(0xFF, 0xA8, 0x2E, 0xFF);
+        internal static readonly Color ShieldColor = new Color32(0xE6, 0xEA, 0xF2, 0xFF);
 
         const float NowSize = 140, EntrySize = 120, EntryGap = 12;   // 17.4: NOW larger; the top strip is 146 px tall
 
@@ -65,6 +69,15 @@ namespace HeroHQ.Screens
         Rect fittedSafeArea;
         Vector2 fittedScreen;
 
+        // ---- taps (P2a-09): BattleScreen sets these; the view only passes the taps on ---------------------------------
+
+        /// <summary>A hero's box was tapped.</summary>
+        public Action<Fighter> HeroTapped;
+        /// <summary>The field was tapped where no hero stands.</summary>
+        public Action EmptyTapped;
+        /// <summary>One of the three skill buttons was tapped.</summary>
+        public Action<HeroHQ.Rules.Button> ButtonTapped;
+
         public void Build(Transform parent)
         {
             var go = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -98,6 +111,15 @@ namespace HeroHQ.Screens
             Seed = Label("Seed", TopStrip, "", 28, Grey, TextAnchor.UpperLeft);
             Seed.rectTransform.Band(0, 40, left: 0, right: 1400);
 
+            // A tap on the field where no box stands takes the armed skill back (17.5). The boxes, made later, sit on top.
+            var fieldTap = Field.gameObject.AddComponent<Image>();
+            fieldTap.color = Color.clear;
+            var fieldButton = Field.gameObject.AddComponent<UnityEngine.UI.Button>();
+            fieldButton.targetGraphic = fieldTap;
+            fieldButton.transition = Selectable.Transition.None;
+            fieldButton.onClick.AddListener(() => EmptyTapped?.Invoke());
+
+            BuildBottomBand();
             BuildEnd();
         }
 
@@ -119,13 +141,19 @@ namespace HeroHQ.Screens
                 {
                     var at = formation.Slots[hero.Slot].At;
                     var x = (float)at[0] * (hero.Side == Side.Player ? -1 : 1);
-                    figures[hero] = new HeroFigure(hero, Field, new Vector2(x, -(float)at[1]));
+                    var figure = new HeroFigure(hero, Field, new Vector2(x, -(float)at[1]));
+                    figure.Tap.onClick.AddListener(() => HeroTapped?.Invoke(hero));
+                    figure.ShowShield(Targeting.Covered(fight, hero));
+                    figures[hero] = figure;
                 }
+            ShowButtonsLocked();
+            ShowActing(null);
         }
 
         /// <summary>
         /// After an action (7.2): Health and charge as <see cref="Playback"/> counted them from the events (finding 3),
-        /// the effects and the Barrier from the fighters. A hero whose shown Health is 0 has fallen (reading R22).
+        /// the effects and the Barrier from the fighters, and the shields from <see cref="Targeting.Covered"/> (a back-row
+        /// hero loses theirs when the last hero covering them has fallen). A hero whose shown Health is 0 has fallen (R22).
         /// </summary>
         public void SyncAfterAction(Fight fight, Playback playback)
         {
@@ -142,14 +170,190 @@ namespace HeroHQ.Screens
                 figure.ShowHealth(health, hero.MaxHealth, BarrierOf(hero));
                 figure.ShowCharge(playback.Charge(hero));
                 figure.ShowEffects(hero.Effects, hero.TurnsStarted);
+                figure.ShowShield(Targeting.Covered(fight, hero));
             }
         }
 
-        /// <summary>The ring goes on the acting hero (null: nobody).</summary>
+        /// <summary>The ring goes on the acting hero (null: nobody), and the bottom band says whose turn it is (17.3).</summary>
         public void ShowActing(Fighter acting)
         {
             foreach (var pair in figures) pair.Value.ShowActing(pair.Key == acting);
+            TurnLine.text = acting == null ? "" : $"{acting.Hero.Name}'s turn";
+            TurnLine.color = acting != null && acting.Side == Side.Enemy ? Red : Blue;
         }
+
+        // ---- the bottom band: whose turn, the info strip, the three buttons (P2a-09; 02 GDD 17.3, 17.5) ----------------
+
+        /// <summary>How a skill button looks (17.5's states).</summary>
+        public enum ButtonLook
+        {
+            Ready,
+            Armed,
+            /// <summary>The Special on cooldown: grey, with the turns left.</summary>
+            Waiting,
+            /// <summary>The Ultimate under 100: grey, with the charge.</summary>
+            Charging,
+            UltimateReady,
+            /// <summary>All three greyed: an enemy's turn, or the screen playing what happened.</summary>
+            Locked,
+        }
+
+        /// <summary>One of the three skill buttons as drawn.</summary>
+        public sealed class SkillButton
+        {
+            public HeroHQ.Rules.Button Kind;
+            public UnityEngine.UI.Button Ui;
+            public RectTransform Rect;
+            public Image Frame;
+            public Text Name;
+            /// <summary>The big line: the turns left, the charge, READY, or nothing.</summary>
+            public Text State;
+            public RectTransform ChargeFill;
+            public GameObject Outline;
+            public CanvasGroup Group;
+            public ButtonLook Look;
+            public float RestY;
+        }
+
+        /// <summary>"Skipjack's turn" in the bottom band's left part.</summary>
+        public Text TurnLine { get; private set; }
+        /// <summary>The info strip: the armed skill's sentence, or why a tap did nothing (17.5).</summary>
+        public Text InfoStrip { get; private set; }
+
+        readonly List<SkillButton> buttons = new List<SkillButton>();
+        /// <summary>Basic, Special, Ultimate, in that order.</summary>
+        public IReadOnlyList<SkillButton> Buttons => buttons;
+
+        /// <summary>Button sizes (17.1: at least 144 px; 17.3: the Ultimate largest, nearest the right thumb).</summary>
+        public const float ButtonWidth = 230, ButtonHeight = 200, UltimateWidth = 270, UltimateHeight = 230, ButtonGap = 24;
+
+        void BuildBottomBand()
+        {
+            // Left part: the turn line and the info strip, clear of the buttons.
+            var buttonsWidth = 2 * ButtonWidth + UltimateWidth + 3 * ButtonGap;
+            TurnLine = Label("Turn", BottomBand, "", 44, Blue, TextAnchor.MiddleLeft);
+            TurnLine.fontStyle = FontStyle.Bold;
+            TurnLine.rectTransform.Band(0, 56, left: 0, right: buttonsWidth);
+            InfoStrip = Label("Info strip", BottomBand, "", 40, Color.white, TextAnchor.UpperLeft);
+            InfoStrip.rectTransform.Band(64, 250, left: 0, right: buttonsWidth);
+            InfoStrip.horizontalOverflow = HorizontalWrapMode.Wrap;
+            InfoStrip.resizeTextForBestFit = true;   // a long sentence shrinks a little, never under 32 px (17.1)
+            InfoStrip.resizeTextMinSize = 32;
+            InfoStrip.resizeTextMaxSize = 40;
+
+            // Right part: Basic, Special, Ultimate from left to right, standing on the band's bottom edge.
+            var right = 0f;
+            foreach (var kind in new[] { HeroHQ.Rules.Button.Ultimate, HeroHQ.Rules.Button.Special, HeroHQ.Rules.Button.Basic })
+            {
+                var ultimate = kind == HeroHQ.Rules.Button.Ultimate;
+                var size = ultimate ? new Vector2(UltimateWidth, UltimateHeight) : new Vector2(ButtonWidth, ButtonHeight);
+                buttons.Insert(0, SkillButtonAt(kind, size, right));
+                right += size.x + ButtonGap;
+            }
+            ShowButtonsLocked();
+        }
+
+        SkillButton SkillButtonAt(HeroHQ.Rules.Button kind, Vector2 size, float fromRight)
+        {
+            var rect = NewRect(kind.ToString(), BottomBand);
+            rect.anchorMin = rect.anchorMax = new Vector2(1, 0);
+            rect.pivot = new Vector2(1, 0);
+            rect.sizeDelta = size;
+            var restY = 10f;
+            rect.anchoredPosition = new Vector2(-fromRight, restY);
+            var group = rect.gameObject.AddComponent<CanvasGroup>();
+
+            // The armed outline sits behind the frame, so it shows as a thick white edge.
+            var outline = Panel("Armed outline", rect, Color.white);
+            outline.rectTransform.Inset(-8);
+            outline.gameObject.SetActive(false);
+
+            var frame = Panel("Frame", rect, Blue);
+            frame.raycastTarget = true;   // the frame catches the tap
+            var ui = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
+            ui.targetGraphic = frame;
+            ui.transition = Selectable.Transition.None;
+            ui.onClick.AddListener(() => ButtonTapped?.Invoke(kind));
+            var body = Panel("Body", frame.rectTransform, Body).rectTransform;
+            body.Inset(6);
+
+            var name = Label("Name", body, "", 32, Color.white, TextAnchor.UpperCenter);
+            name.fontStyle = FontStyle.Bold;
+            name.horizontalOverflow = HorizontalWrapMode.Wrap;
+            name.rectTransform.Band(8, 90, left: 8, right: 8);
+            var state = Label("State", body, "", 64, Color.white, TextAnchor.MiddleCenter);
+            state.fontStyle = FontStyle.Bold;
+            state.rectTransform.Band(90, size.y - 34, left: 0, right: 0);
+
+            var charge = Panel("Charge bar", body, Track).rectTransform;
+            charge.Band(size.y - 30, size.y - 18, left: 10, right: 10);
+            var fill = Panel("Charge", charge, Gold).rectTransform;
+            fill.Span(0, 0);
+            charge.gameObject.SetActive(kind == HeroHQ.Rules.Button.Ultimate);
+
+            return new SkillButton
+            {
+                Kind = kind, Ui = ui, Rect = rect, Frame = frame, Name = name, State = state, ChargeFill = fill,
+                Outline = outline.gameObject, Group = group, RestY = restY,
+            };
+        }
+
+        /// <summary>
+        /// Your hero is choosing (17.5): each button shows its skill's name and its state from <paramref name="options"/>
+        /// (<c>Fight.Options</c>), the Special's turns left from <paramref name="cooldown"/>, the Ultimate's charge from
+        /// <paramref name="charge"/>; the <paramref name="armed"/> one is raised with a thick outline.
+        /// </summary>
+        public void ShowButtons(IReadOnlyList<ButtonOption> options, HeroHQ.Rules.Button? armed, int cooldown, double charge)
+        {
+            foreach (var b in buttons)
+            {
+                var option = options[(int)b.Kind];
+                b.Name.text = option.Skill.Name;
+                var look = !option.Usable
+                    ? (b.Kind == HeroHQ.Rules.Button.Ultimate ? ButtonLook.Charging : ButtonLook.Waiting)
+                    : armed == b.Kind ? ButtonLook.Armed
+                    : b.Kind == HeroHQ.Rules.Button.Ultimate ? ButtonLook.UltimateReady : ButtonLook.Ready;
+                var state = look == ButtonLook.Waiting ? cooldown.ToString()
+                          : look == ButtonLook.Charging ? Mathf.FloorToInt((float)charge).ToString()
+                          : b.Kind == HeroHQ.Rules.Button.Ultimate ? "READY" : "";
+                Draw(b, look, state, Mathf.Clamp01((float)(charge / 100)));
+            }
+        }
+
+        /// <summary>All three greyed, with plain words (17.5 Locked): an enemy's turn, or what happened playing back.</summary>
+        public void ShowButtonsLocked()
+        {
+            foreach (var b in buttons)
+            {
+                b.Name.text = b.Kind.ToString();
+                Draw(b, ButtonLook.Locked, "", 0);
+            }
+            if (InfoStrip != null) InfoStrip.text = "";
+        }
+
+        void Draw(SkillButton b, ButtonLook look, string state, float charge)
+        {
+            b.Look = look;
+            b.State.text = state;
+            var grey = look == ButtonLook.Waiting || look == ButtonLook.Charging || look == ButtonLook.Locked;
+            b.Frame.color = look == ButtonLook.UltimateReady || (look == ButtonLook.Armed && b.Kind == HeroHQ.Rules.Button.Ultimate) ? Gold
+                          : grey ? Grey : Blue;
+            b.State.color = look == ButtonLook.UltimateReady ? Gold : Color.white;
+            b.Group.alpha = look == ButtonLook.Locked ? 0.4f : 1;
+            b.Outline.SetActive(look == ButtonLook.Armed);
+            b.Rect.anchoredPosition = new Vector2(b.Rect.anchoredPosition.x, b.RestY + (look == ButtonLook.Armed ? 16 : 0));
+            b.ChargeFill.Span(0, charge);
+        }
+
+        /// <summary>Not choosing any more: every glow, dim, outline and hit chip off, the buttons locked.</summary>
+        public void ClearChoosing()
+        {
+            foreach (var figure in figures.Values) figure.ShowChoosing(false, false, false, null);
+            ShowButtonsLocked();
+        }
+
+        /// <summary>The info strip's words: the armed skill's sentence, a reason, or nothing.</summary>
+        public void ShowInfo(string text) => InfoStrip.text = text ?? "";
 
         // ---- the show (P2a-08; 02 GDD 17.6 and 17.7) -----------------------------------------------------------------
 
@@ -530,6 +734,38 @@ namespace HeroHQ.Screens
                                         SpriteMeshType.FullRect, new Vector4(15, 15, 15, 15));
                 rounded.hideFlags = HideFlags.DontSave;
                 return rounded;
+            }
+        }
+
+        static Sprite shieldShape;
+        /// <summary>
+        /// A white shield drawn by code (no art file): straight sides for the top half, then narrowing to a point at the
+        /// bottom. The mark a covered back-row hero wears (17.5).
+        /// </summary>
+        internal static Sprite ShieldShape
+        {
+            get
+            {
+                if (shieldShape != null) return shieldShape;
+                const int width = 40, height = 48;
+                var texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
+                {
+                    name = "Shield (made by code)", wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave,
+                };
+                var pixels = new Color32[width * height];
+                for (int y = 0; y < height; y++)          // y counts up from the bottom row of pixels
+                    for (int x = 0; x < width; x++)
+                    {
+                        var up = (y + 0.5f) / height;        // 0 at the bottom tip, 1 at the top
+                        var halfWidth = up >= 0.5f ? width / 2f : width / 2f * (up / 0.5f);
+                        var inside = Mathf.Abs(x + 0.5f - width / 2f) <= halfWidth;
+                        pixels[y * width + x] = new Color32(255, 255, 255, (byte)(inside ? 255 : 0));
+                    }
+                texture.SetPixels32(pixels);
+                texture.Apply();
+                shieldShape = Sprite.Create(texture, new Rect(0, 0, width, height), new Vector2(0.5f, 0.5f), 100);
+                shieldShape.hideFlags = HideFlags.DontSave;
+                return shieldShape;
             }
         }
 

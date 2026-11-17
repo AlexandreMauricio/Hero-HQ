@@ -9,7 +9,7 @@ namespace HeroHQ.Screens
     /// One hero's box on the field (03 Architecture 7.2, 02 GDD 17.6), drawn by code in plain boxes: the name, the
     /// Health bar with its number and a Barrier stretch, the gold charge bar with ULT at 100, the effect chips above
     /// the box, the acting ring, and a grey empty slot that stays when the hero falls. Plain C#: it draws what it is
-    /// told and knows no rules. P2a-09 adds glow, dim, shield, the aiming outline and the hit chip.
+    /// told and knows no rules. P2a-09: the tap, glow, dim, the shield, the aiming outline and the amber hit chip.
     /// </summary>
     public sealed class HeroFigure
     {
@@ -40,7 +40,14 @@ namespace HeroHQ.Screens
             Root.sizeDelta = new Vector2(Width, BoxHeight);
             Root.anchoredPosition = at;
 
-            // Drawn in this order: the empty slot under everything, the ring just behind the box so it shows as an outline.
+            // P2a-09: the whole box is a tap target (an invisible picture that catches the tap; see the Glossary, *raycast*).
+            var tapArea = Root.gameObject.AddComponent<Image>();
+            tapArea.color = Color.clear;
+            Tap = Root.gameObject.AddComponent<UnityEngine.UI.Button>();
+            Tap.targetGraphic = tapArea;
+            Tap.transition = Selectable.Transition.None;
+
+            // Drawn in this order: the empty slot under everything, the rings just behind the box so they show as outlines.
             var slot = BattleView.Panel("Empty slot", Root, BattleView.Grey);
             BattleView.Panel("Inside", slot.rectTransform, BattleView.Background).rectTransform.Inset(4);
             EmptySlot = slot.gameObject;
@@ -51,6 +58,18 @@ namespace HeroHQ.Screens
             TargetRing = aim.gameObject;
             TargetRing.SetActive(false);
 
+            // P2a-09: your aim (a thick white outline: the skill will touch this hero), then the softer glow (you may tap
+            // this hero). An aimed hero that also glows shows one thick white ring.
+            var outline = BattleView.Panel("Aim outline", Root, Color.white);
+            outline.rectTransform.Inset(-16);
+            AimOutline = outline.gameObject;
+            AimOutline.SetActive(false);
+
+            var glow = BattleView.Panel("Glow", Root, new Color(1, 1, 1, 0.45f));
+            glow.rectTransform.Inset(-12);
+            Glow = glow.gameObject;
+            Glow.SetActive(false);
+
             var ring = BattleView.Panel("Acting ring", Root, BattleView.Gold);
             ring.rectTransform.Inset(-8);
             Ring = ring.gameObject;
@@ -58,6 +77,7 @@ namespace HeroHQ.Screens
 
             var frame = BattleView.Panel("Box", Root, who.Side == Side.Player ? BattleView.Blue : BattleView.Red);
             Box = frame.gameObject;
+            dimmer = Box.AddComponent<CanvasGroup>();
             var body = BattleView.Panel("Body", frame.rectTransform, BattleView.Body).rectTransform;
             body.Inset(4);
 
@@ -99,9 +119,37 @@ namespace HeroHQ.Screens
             row.childControlWidth = row.childControlHeight = true;
             row.childForceExpandWidth = row.childForceExpandHeight = false;
 
+            // P2a-09: the shield of a covered back-row hero, on the box's side that faces the middle (where the front row
+            // stands); drawn after the box so a dimmed box doesn't dim it.
+            var shield = BattleView.Panel("Shield", Root, BattleView.ShieldColor, BattleView.ShieldShape);
+            var shieldRect = shield.rectTransform;
+            var inner = who.Side == Side.Player ? 1f : 0f;
+            shieldRect.anchorMin = shieldRect.anchorMax = new Vector2(inner, 0.5f);
+            shieldRect.sizeDelta = new Vector2(ShieldWidth, ShieldHeight);
+            shieldRect.anchoredPosition = Vector2.zero;
+            Shield = shield.gameObject;
+            Shield.SetActive(false);
+
+            // P2a-09: the amber hit chip, centred on the box's top edge (reading R27).
+            var chip = BattleView.Panel("Hit chip", Root, BattleView.Amber, BattleView.Rounded);
+            chip.type = Image.Type.Sliced;
+            var chipRect = chip.rectTransform;
+            chipRect.anchorMin = chipRect.anchorMax = new Vector2(0.5f, 1);
+            chipRect.sizeDelta = new Vector2(170, 44);
+            chipRect.anchoredPosition = Vector2.zero;
+            HitText = BattleView.Label("Text", chipRect, "", 32, BattleView.Body, TextAnchor.MiddleCenter);
+            HitText.fontStyle = FontStyle.Bold;
+            HitChip = chip.gameObject;
+            HitChip.SetActive(false);
+
             ShowHealth(who.MaxHealth, who.MaxHealth, 0);   // a fight starts at full Health and no charge (reading R22)
             ShowCharge(0);
         }
+
+        /// <summary>The shield mark's size, reference pixels.</summary>
+        public const float ShieldWidth = 40, ShieldHeight = 48;
+
+        readonly CanvasGroup dimmer;
 
         public Fighter Who { get; }
         /// <summary>The box's place on the field; it never moves (a fallen hero leaves a gap).</summary>
@@ -180,6 +228,45 @@ namespace HeroHQ.Screens
 
         public void ShowTargeted(bool targeted) => TargetRing.SetActive(targeted && !KnockedOut);
 
+        // ---- your turn (P2a-09; 02 GDD 17.5) -------------------------------------------------------------------
+
+        /// <summary>The tap on this box (BattleView passes it to BattleScreen.TapHero).</summary>
+        public UnityEngine.UI.Button Tap { get; }
+        /// <summary>You may tap this hero for the armed skill.</summary>
+        public GameObject Glow { get; }
+        /// <summary>The armed skill will touch this hero.</summary>
+        public GameObject AimOutline { get; }
+        /// <summary>A back-row hero still covered in their lane (02 GDD 2): shown on both sides, all fight long.</summary>
+        public GameObject Shield { get; }
+        /// <summary>The amber "Hit N %" chip, only below 100 % (17.5).</summary>
+        public GameObject HitChip { get; }
+        public Text HitText { get; }
+        /// <summary>You can't tap this hero for the armed skill.</summary>
+        public bool Dimmed { get; private set; }
+
+        /// <summary>
+        /// How this hero looks while you choose: <paramref name="glow"/> (you may tap them), <paramref name="dim"/> (you
+        /// can't), <paramref name="aimed"/> (the skill will touch them) and the hit chance to show, or null for no chip.
+        /// All off: nothing armed, or not your turn.
+        /// </summary>
+        public void ShowChoosing(bool glow, bool dim, bool aimed, double? hitChance)
+        {
+            var standing = !KnockedOut;
+            Glow.SetActive(glow && standing);
+            AimOutline.SetActive(aimed && standing);
+            Dimmed = dim && standing;
+            dimmer.alpha = Dimmed ? 0.4f : 1;
+            HitChip.SetActive(hitChance.HasValue && standing);
+            HitText.text = hitChance.HasValue ? HitWords(hitChance.Value) : "";
+        }
+
+        /// <summary>
+        /// "Hit 85 %": the hit chance as a whole number, rounded down so a chip never reads 100 % (reading R27).
+        /// </summary>
+        public static string HitWords(double hitChance) => $"Hit {Mathf.FloorToInt((float)hitChance)} %";
+
+        public void ShowShield(bool covered) => Shield.SetActive(covered && !KnockedOut);
+
         /// <summary>The hero fell: the box goes, the grey empty slot stays, nobody moves into it (02 GDD 2, 17.6).</summary>
         public void ShowKnockedOut()
         {
@@ -187,6 +274,8 @@ namespace HeroHQ.Screens
             Box.SetActive(false);
             Ring.SetActive(false);
             TargetRing.SetActive(false);
+            ShowChoosing(false, false, false, null);
+            Shield.SetActive(false);
         }
     }
 }
