@@ -46,7 +46,8 @@ namespace HeroHQ.Rules
     /// <summary>
     /// Does one skill (02 GDD 6 and 7, 03 Architecture 4.5): its pieces in the written order. Built so far:
     /// Damage pieces, the hit and crit rolls, the Barrier, knockouts (P1-09); Heal, Apply effect, Clear, Turn
-    /// meter, the six piece conditions and ultimate charge (P1-10); counter-attacks (P1-11); fixed leader and passive bonuses in damage and heals (P1-12). Moment bonuses and Momentum: P1-13–14.
+    /// meter, the six piece conditions and ultimate charge (P1-10); counter-attacks (P1-11); fixed leader and passive bonuses in damage and heals (P1-12);
+    /// moment bonuses and triggered pieces (P1-13). Momentum: P1-14.
     ///
     /// A piece's condition is checked per target as the piece runs; when it is false the piece skips that
     /// target without touching it (no roll).
@@ -99,9 +100,18 @@ namespace HeroHQ.Rules
         /// <summary>
         /// The chance, in percent, that this skill misses <paramref name="target"/> (02 GDD 6). "Can't miss" is a
         /// property of the skill: it holds if any of its pieces is marked so (reading R6, 03 Architecture 4.12).
+        /// Accuracy includes the actor's moment bonuses that hold for this target now (4.6), so the chip and the roll agree.
         /// </summary>
         public static double MissChance(Fight fight, Fighter actor, SkillDef skill, Fighter target) =>
-            DamageMath.MissChance(target.DodgeChance, actor.Accuracy, fight.Data.Tuning["max_dodge"], skill.Pieces.Any(p => p.CantMiss));
+            DamageMath.MissChance(target.DodgeChance, actor.Accuracy + Moment(fight, actor, target, "accuracy"),
+                                  fight.Data.Tuning["max_dodge"], skill.Pieces.Any(p => p.CantMiss));
+
+        /// <summary>
+        /// The actor's bonuses that wait for the moment (03 Architecture 4.6) whose condition holds for this
+        /// target right now, summed for one stat (bonuses add, 02 GDD 8). Used by skills and counter-attacks only.
+        /// </summary>
+        static double Moment(Fight fight, Fighter actor, Fighter target, string stat) =>
+            actor.MomentBonuses.Where(l => l.Stat == stat && Scale(fight, actor, l.Bonus.If, target) > 0).Sum(l => l.Percent);
 
         /// <summary>
         /// 02 GDD 2, step 4: the acting hero uses <paramref name="button"/>. <paramref name="chosen"/> is the
@@ -136,24 +146,48 @@ namespace HeroHQ.Rules
         {
             var rolled = new Dictionary<Fighter, bool?>();
 
-            // "first attack" (02 GDD 7.3) is this skill if the hero hadn't attacked before it, hit or miss (R4)
-            var firstAttack = !actor.Attacked;
-            if (skill.Pieces.Any(p => EnemyTargets.Contains(p.Target))) actor.Attacked = true;
-
             foreach (var piece in skill.Pieces)
             {
                 // the piece's targets are fixed before it does anything; a hero knocked out on the way is skipped
                 foreach (var target in Targeting.Targets(fight, actor, piece.Target, chosen).ToList())
                 {
                     if (target.KnockedOut) continue;
-                    var scale = Scale(fight, actor, piece.If, target, firstAttack);
+                    var scale = Scale(fight, actor, piece.If, target);
                     if (scale == 0) continue;                     // condition false: the piece skips this hero, no roll
                     var crit = Contact(fight, actor, skill, target, rolled, events);
                     if (crit == null) continue;                   // missed: nothing this skill does reaches them
-                    events.AddRange(Do(fight, actor, piece, target, scale, crit.Value));
+                    events.AddRange(Do(fight, actor, piece, target, scale, crit.Value,
+                                       Moment(fight, actor, target, "damage"), Moment(fight, actor, target, "healing")));
                 }
             }
+
+            // "first attack" (02 GDD 7.3) is the whole of the first skill aimed at an enemy, hit or miss (R4): it ends here
+            if (skill.Pieces.Any(p => EnemyTargets.Contains(p.Target))) actor.Attacked = true;
             return rolled;
+        }
+
+        /// <summary>
+        /// One triggered piece list (02 GDD 8), run as <paramref name="owner"/>'s own: a leader's trigger on each
+        /// ally it names, a passive's on its hero. "Ally" means the other four (10.6 q. 9). No roll, no crit and no
+        /// moment bonus (03 Architecture 4.6: Doc Nefer's leader heal stays 3 % on everyone); piece conditions
+        /// still apply. Only own-side targets: no approved kit triggers a piece at an enemy (reading R13).
+        /// </summary>
+        internal static IReadOnlyList<FightEvent> Trigger(Fight fight, Fighter owner, TriggerDef trigger)
+        {
+            var events = new List<FightEvent>();
+            foreach (var piece in trigger.Pieces)
+            {
+                if (piece.Target != "self" && piece.Target != "all_allies" && piece.Target != "most_hurt_ally")
+                    throw new NotSupportedException($"{owner.Hero.Id}'s {trigger.When} trigger aims at '{piece.Target}': a trigger has nobody tapped and never rolls, so it aims only at its own side (reading R13).");
+                foreach (var target in Targeting.Targets(fight, owner, piece.Target, null, inTrigger: true).ToList())
+                {
+                    if (target.KnockedOut) continue;
+                    var scale = Scale(fight, owner, piece.If, target);
+                    if (scale == 0) continue;
+                    events.AddRange(Do(fight, owner, piece, target, scale, crit: false, momentDamage: 0, momentHealing: 0));
+                }
+            }
+            return events;
         }
 
         /// <summary>
@@ -185,20 +219,23 @@ namespace HeroHQ.Rules
         /// <summary>
         /// One piece on one target that it has reached (02 GDD 7.1). <paramref name="scale"/> multiplies the
         /// piece's number (1 unless a <c>per_ally_with</c> condition counts more allies, reading R8).
+        /// <paramref name="momentDamage"/> and <paramref name="momentHealing"/> are the actor's moment bonuses that
+        /// hold for this target (4.6), 0 for a triggered piece.
         /// </summary>
-        static IReadOnlyList<FightEvent> Do(Fight fight, Fighter actor, PieceDef piece, Fighter target, int scale, bool crit)
+        static IReadOnlyList<FightEvent> Do(Fight fight, Fighter actor, PieceDef piece, Fighter target, int scale, bool crit,
+                                            double momentDamage, double momentHealing)
         {
             switch (piece.Do)
             {
                 case "damage":
                     var events = new List<FightEvent>();
                     for (var hit = 0; hit < (piece.Hits ?? 1) && !target.KnockedOut; hit++)
-                        events.AddRange(Hit(fight, actor, target, piece.Power.Value * scale, crit));
+                        events.AddRange(Hit(fight, actor, target, piece.Power.Value * scale, crit, momentDamage));
                     return events;
 
                 case "heal":
-                    // the healer's fixed healing bonus (P1-12; moment bonuses: P1-13); no roll, no crit (02 GDD 6)
-                    var healed = DamageMath.Heal(piece.Percent.Value * scale, new[] { actor.HealingBonus }, target.MaxHealth, target.Health);
+                    // the healer's fixed and moment healing bonuses, added (02 GDD 6); no roll, no crit
+                    var healed = DamageMath.Heal(piece.Percent.Value * scale, new[] { actor.HealingBonus, momentHealing }, target.MaxHealth, target.Health);
                     target.Health += healed;
                     return new[] { new FightEvent(FightEventKind.Healed, target) { Amount = healed } };
 
@@ -236,8 +273,10 @@ namespace HeroHQ.Rules
         /// A piece's condition (02 GDD 7.3) for one target, checked when the piece runs: 0 = skip, 1 = do it.
         /// <c>per_ally_with</c> gives the number of matching allies, which multiplies the piece (reading R8).
         /// </summary>
-        static int Scale(Fight fight, Fighter actor, ConditionDef condition, Fighter target, bool firstAttack)
+        static int Scale(Fight fight, Fighter actor, ConditionDef condition, Fighter target)
         {
+            // the hero's first attack lasts until their first skill aimed at an enemy has ended (Resolve sets Attacked then)
+            var firstAttack = !actor.Attacked;
             if (condition == null) return 1;
             switch (condition.Test)
             {
@@ -291,7 +330,7 @@ namespace HeroHQ.Rules
                 events.Add(new FightEvent(FightEventKind.Missed, target));
             }
             else
-                result = skill.Pieces.Any(p => p.AlwaysCrits) || fight.Roll(actor.CritChance);
+                result = skill.Pieces.Any(p => p.AlwaysCrits) || fight.Roll(actor.CritChance + Moment(fight, actor, target, "crit_chance"));
             rolled[target] = result;
             return result;
         }
@@ -302,10 +341,10 @@ namespace HeroHQ.Rules
         /// otherwise Health lost to an enemy charges the ultimate, + <c>charge_per_hurt</c> per 1 % of max Health
         /// (02 GDD 4; the Barrier's share is not lost, so it gives none).
         /// </summary>
-        static IEnumerable<FightEvent> Hit(Fight fight, Fighter actor, Fighter target, double power, bool crit)
+        static IEnumerable<FightEvent> Hit(Fight fight, Fighter actor, Fighter target, double power, bool crit, double momentDamage)
         {
             var tuning = fight.Data.Tuning;
-            var amount = DamageMath.Damage(actor.Damage, power, OffenseChanges(actor, tuning), target.Armor,
+            var amount = DamageMath.Damage(actor.Damage, power, OffenseChanges(actor, tuning).Append(momentDamage), target.Armor,
                                            tuning["armor_k"], DefenseChanges(target, tuning), crit, actor.CritDamage);
 
             var barrierEvents = Effects.Soak(target, amount, out var soaked);

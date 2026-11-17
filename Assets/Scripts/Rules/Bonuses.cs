@@ -40,7 +40,7 @@ namespace HeroHQ.Rules
 
         public string Stat => Bonus.Stat;
 
-        /// <summary>The condition depends on the moment a skill is used (Strix's first attack…): checked then, not now (P1-13).</summary>
+        /// <summary>The condition depends on the moment a skill is used (Strix's first attack…): checked then, by SkillResolver (P1-13).</summary>
         public bool AtTheMoment { get; }
 
         /// <summary>A fixed line that counts for the whole fight. Always false on a line at the moment.</summary>
@@ -110,7 +110,8 @@ namespace HeroHQ.Rules
     /// <summary>
     /// Leader and passive bonuses (02 GDD 8; 03 Architecture 4.6), fixed part. Only the named leader's leader
     /// skill counts; trait and class counts are taken once, here, so nothing switches off after a knockout and a
-    /// fallen leader's bonuses stay. Bonuses that depend on the moment are listed, not applied (P1-13).
+    /// fallen leader's bonuses stay. Bonuses that depend on the moment are listed here and kept on the fighter;
+    /// SkillResolver applies them when a skill touches a target (P1-13).
     /// </summary>
     public static class Bonuses
     {
@@ -156,6 +157,19 @@ namespace HeroHQ.Rules
                 default:
                     return new BonusLine(source, from, bonus, true, false, 0, percent);
             }
+        }
+
+        /// <summary>
+        /// The triggers one hero has for one moment (02 GDD 8): the named leader's whose <c>who</c> names the hero,
+        /// which run as that hero's own (03 Architecture 3.2), then the hero's own passive's, each in the written order.
+        /// The two flags pick one half: fight start runs every leader's triggers before any passive's (10.6 q. 5).
+        /// </summary>
+        internal static IEnumerable<TriggerDef> Triggers(HeroDef leader, HeroDef hero, string when, bool fromLeader, bool fromPassive)
+        {
+            var none = new TriggerDef[0];
+            var fromTheLeader = fromLeader ? (leader.Leader.Triggers ?? none).Where(t => t.When == when && Matches(hero, t.Who)) : none;
+            var fromThePassive = fromPassive ? (hero.Passive.Triggers ?? none).Where(t => t.When == when) : none;
+            return fromTheLeader.Concat(fromThePassive);
         }
 
         /// <summary>A leader's <c>who</c> filter: everyone when empty; else the trait and/or the class must match.</summary>

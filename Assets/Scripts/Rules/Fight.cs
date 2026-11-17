@@ -60,7 +60,8 @@ namespace HeroHQ.Rules
     /// Nothing here waits or draws: every call returns the list of what happened and the screen plays it back.
     /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07), the
     /// buttons and Damage pieces (P1-09, SkillResolver), the other pieces, cooldown and charge (P1-10);
-    /// counters (P1-11), the fixed leader and passive bonuses (P1-12); triggers (P1-13) come with their task.
+    /// counters (P1-11), the fixed leader and passive bonuses (P1-12); fight-start and turn-start triggers and
+    /// moment bonuses (P1-13). The attack-hits and ally-below-half triggers come with P1-14.
     /// </summary>
     public class Fight
     {
@@ -69,13 +70,17 @@ namespace HeroHQ.Rules
         readonly List<Fighter> all;          // players then enemies; TurnMeter works on everyone at once
         readonly Random random;              // null on a copy: a copy may never roll (4.2)
         readonly int meterFull;
+        readonly HeroDef playerLeader;       // the named leaders: their leader skills count all fight, even after a knockout (02 GDD 8)
+        readonly HeroDef enemyLeader;
 
-        Fight(GameData data, List<Fighter> players, List<Fighter> enemies, Random random)
+        Fight(GameData data, List<Fighter> players, List<Fighter> enemies, Random random, HeroDef playerLeader, HeroDef enemyLeader)
         {
             Data = data;
             this.players = players;
             this.enemies = enemies;
             this.random = random;
+            this.playerLeader = playerLeader;
+            this.enemyLeader = enemyLeader;
             all = players.Concat(enemies).ToList();
             meterFull = Whole(data.Tuning["meter_full"]);
         }
@@ -95,14 +100,43 @@ namespace HeroHQ.Rules
         public Outcome Outcome { get; private set; }
 
         /// <summary>
+        /// What the fight-start triggers did inside <see cref="Create"/> (Wards put on, meters filled), in the
+        /// order it happened. The screen plays these first; the log and the report count them. Empty on a copy.
+        /// </summary>
+        public IReadOnlyList<FightEvent> StartEvents { get; private set; } = new FightEvent[0];
+
+        /// <summary>
         /// Sets up a fight between two teams of the data (02 GDD 2): each hero in their slot, every meter at 0
-        /// (02 GDD 3), Health full. <paramref name="seed"/> fixes the hit and crit rolls, so the same seed replays
-        /// the same fight (4.9).
+        /// (02 GDD 3), Health full, then the fight-start triggers (<see cref="StartEvents"/>).
+        /// <paramref name="seed"/> fixes the hit and crit rolls, so the same seed replays the same fight (4.9).
         /// </summary>
         public static Fight Create(GameData data, TeamDef playerTeam, TeamDef enemyTeam, int seed)
         {
-            return new Fight(data, Team(data, playerTeam, Side.Player), Team(data, enemyTeam, Side.Enemy), new Random(seed));
+            var fight = new Fight(data, Team(data, playerTeam, Side.Player), Team(data, enemyTeam, Side.Enemy), new Random(seed),
+                                  data.Heroes[playerTeam.Leader], data.Heroes[enemyTeam.Leader]);
+            fight.StartEvents = fight.FightStart();
+            return fight;
         }
+
+        /// <summary>
+        /// The fight-start triggers in the order of 02 GDD 10.6 q. 5: the leader skills first, yours then the
+        /// enemy's (each trigger on each ally it names, in slot order, as that ally's own), then the passives in
+        /// slot order, your side first.
+        /// </summary>
+        List<FightEvent> FightStart()
+        {
+            var events = new List<FightEvent>();
+            foreach (var hero in all)
+                foreach (var trigger in Bonuses.Triggers(Leader(hero.Side), hero.Hero, "fight_start", fromLeader: true, fromPassive: false))
+                    events.AddRange(SkillResolver.Trigger(this, hero, trigger));
+            foreach (var hero in all)
+                foreach (var trigger in Bonuses.Triggers(Leader(hero.Side), hero.Hero, "fight_start", fromLeader: false, fromPassive: true))
+                    events.AddRange(SkillResolver.Trigger(this, hero, trigger));
+            return events;
+        }
+
+        /// <summary>The named leader of one side (02 GDD 8).</summary>
+        HeroDef Leader(Side side) => side == Side.Player ? playerLeader : enemyLeader;
 
         static List<Fighter> Team(GameData data, TeamDef team, Side side)
         {
@@ -124,6 +158,7 @@ namespace HeroHQ.Rules
                 CritDamage = b.Stat("crit_damage"),
                 DamageBonus = b.DamageBonus,
                 HealingBonus = b.HealingBonus,
+                MomentBonuses = b.Lines.Where(l => l.AtTheMoment).ToList(),
             }).ToList();
         }
 
@@ -144,9 +179,13 @@ namespace HeroHQ.Rules
                     TurnMeter.Tick(all);
                 Acting.TurnsStarted++;
                 events.Add(new FightEvent(FightEventKind.TurnStarted, Acting));
+
+                // start-of-turn triggers (the leader's that name this hero, then the hero's passive), even when stunned (02 GDD 2 step 2)
+                foreach (var trigger in Bonuses.Triggers(Leader(Acting.Side), Acting.Hero, "turn_start", fromLeader: true, fromPassive: true))
+                    events.AddRange(SkillResolver.Trigger(this, Acting, trigger));
                 if (!Effects.IsStunned(Acting)) break;
 
-                // start-of-turn passives fire here even when stunned (P1-13), then the turn is skipped
+                // a stunned turn is skipped
                 events.Add(new FightEvent(FightEventKind.TurnSkipped, Acting));
                 events.AddRange(Effects.UseUp(Acting, "stun"));
                 events.AddRange(EndTurn());
@@ -254,7 +293,8 @@ namespace HeroHQ.Rules
         /// </summary>
         public Fight Copy()
         {
-            var copy = new Fight(Data, players.Select(f => f.Copy()).ToList(), enemies.Select(f => f.Copy()).ToList(), random: null)
+            var copy = new Fight(Data, players.Select(f => f.Copy()).ToList(), enemies.Select(f => f.Copy()).ToList(), random: null,
+                                 playerLeader, enemyLeader)
             {
                 Outcome = Outcome,
             };

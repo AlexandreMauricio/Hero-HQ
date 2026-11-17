@@ -74,6 +74,13 @@ namespace HeroHQ.Rules
         /// <summary>The fixed % from leader and passive bonuses added to every heal the hero gives (02 GDD 6, 10.2).</summary>
         public double HealingBonus { get; set; }
 
+        /// <summary>
+        /// The leader and passive bonuses this hero receives that wait for the moment (03 Architecture 4.6:
+        /// first attack, target has a trait, class or effect, target hasn't acted). Checked each time one of the
+        /// hero's skills or counter-attacks touches a target; never by a triggered piece. Set by Fight.Create (P1-13).
+        /// </summary>
+        public IReadOnlyList<BonusLine> MomentBonuses { get; set; } = new BonusLine[0];
+
         /// <summary>Ultimate charge from 0 to 100, fractions kept (02 GDD 4). The Ultimate is usable at 100.</summary>
         public double Charge { get; set; }
 
