@@ -9,7 +9,7 @@ namespace HeroHQ.Rules
     /// only look at the fight: they change nothing, roll nothing and make no events.
     ///
     /// Every list comes back in slot order and holds standing heroes only (a knocked-out hero can't be
-    /// targeted, and the row closes up around them). "Opponents" and "allies" are relative to the acting hero,
+    /// targeted, and their slot stays an empty gap that nobody slides into, 02 GDD 2). "Opponents" and "allies" are relative to the acting hero,
     /// so the same code works for your side and the enemy's.
     /// </summary>
     public static class Targeting
@@ -31,8 +31,9 @@ namespace HeroHQ.Rules
         /// Who a skill aimed at a chosen enemy may pick (02 GDD 2 and 7.2), in this order:
         /// 1. while any opponent has Taunt, only the taunting heroes, in either row (a skill that
         ///    <paramref name="reachesBackRow"/> is no exception);
-        /// 2. else, unless the skill reaches the back row, the front row while a front-row hero stands;
-        /// 3. else every standing opponent (the front row is down, or the skill reaches the back row).
+        /// 2. else, unless the skill reaches the back row, every standing opponent who is not <see cref="Covered"/>
+        ///    (the lane rule, OWNER 2026-11-17: a back-row hero opens once every front slot covering them has fallen);
+        /// 3. else every standing opponent (the skill reaches the back row).
         /// </summary>
         public static IReadOnlyList<Fighter> Choosable(Fight fight, Fighter actor, bool reachesBackRow)
         {
@@ -41,17 +42,24 @@ namespace HeroHQ.Rules
             var taunting = opponents.Where(f => f.Effects.Any(e => e.Kind == "taunt")).ToList();
             if (taunting.Count > 0) return taunting;
 
-            if (!reachesBackRow)
-            {
-                var front = opponents.Where(f => f.Row == Row.Front).ToList();
-                if (front.Count > 0) return front;
-            }
-            return opponents;
+            return reachesBackRow ? opponents : opponents.Where(f => !Covered(fight, f)).ToList();
         }
 
         /// <summary>
-        /// The heroes next to <paramref name="fighter"/> in the same row, skipping knocked-out heroes (the row
-        /// closes up). Never across rows. At most two: the standing hero above and the one below.
+        /// True for a back-row hero with at least one of the front slots in front of them (the formation's lane map,
+        /// 02 GDD 2; <see cref="Fighter.CoveredBy"/>) still standing. Never true for a front-row hero or a knocked-out
+        /// one. The map belongs to the formation, so a fallen hero's slot keeps its place in it.
+        /// </summary>
+        public static bool Covered(Fight fight, Fighter hero)
+        {
+            if (hero.KnockedOut) return false;
+            var side = hero.Side == Side.Player ? fight.Players : fight.Enemies;
+            return hero.CoveredBy.Any(slot => !side[slot].KnockedOut);
+        }
+
+        /// <summary>
+        /// The heroes next to <paramref name="fighter"/> in the same row, skipping knocked-out heroes (a fallen
+        /// hero leaves a gap, 02 GDD 2). Never across rows. At most two: the standing hero above and the one below.
         /// </summary>
         public static IReadOnlyList<Fighter> Neighbours(Fight fight, Fighter fighter)
         {

@@ -203,7 +203,7 @@ namespace HeroHQ.Tests
                 .SelectMany(h => new[] { (h.Id, "basic", h.Basic), (h.Id, "special", h.Special), (h.Id, "ultimate", h.Ultimate) })
                 .Where(s => s.Item3.Pieces.Any(p => p.ReachesBackRow))
                 .Select(s => $"{s.Item1}.{s.Item2}");
-            Assert.That(reaching, Is.EquivalentTo(new[] { "skipjack.ultimate", "strix.ultimate", "thordis.special" }));
+            Assert.That(reaching, Is.EquivalentTo(new[] { "skipjack.ultimate", "strix.ultimate", "thordis.special", "ibis.special" }));
         }
 
         [Test]

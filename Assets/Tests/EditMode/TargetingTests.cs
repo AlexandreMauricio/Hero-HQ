@@ -144,6 +144,96 @@ namespace HeroHQ.Tests
             Assert.AreEqual(new[] { 1, 2 }, Slots(Targeting.Choosable(fight, fight.Players[0], false)));
         }
 
+        // ---- the lane rule (P2a-02; 02 GDD 2, OWNER 2026-11-17 targeting grill Q4; 02 GDD 11 test 15) -----------
+
+        [Test]
+        public void Choosable_3to2_F1AndF2Down_B4CanBePicked_B5Cannot()
+        {
+            var fight = NewTestFight();
+            Knock(fight.Enemies[0]);
+            Knock(fight.Enemies[1]);
+
+            // F3 still stands: it is pickable, B4 (covered by F1 + F2) is open, B5 (covered by F2 + F3) is not
+            Assert.AreEqual(new[] { 2, 3 }, Slots(Targeting.Choosable(fight, fight.Players[0], false)));
+        }
+
+        [Test]
+        public void Choosable_3to2_F1AndF3Down_NeitherBackHeroCanBePicked()
+        {
+            var fight = NewTestFight();
+            Knock(fight.Enemies[0]);
+            Knock(fight.Enemies[2]);
+
+            // the middle hero covers both: only they can be picked
+            Assert.AreEqual(new[] { 1 }, Slots(Targeting.Choosable(fight, fight.Players[0], false)));
+        }
+
+        [Test]
+        public void Choosable_TheLaneRuleWorksTheSameForTheEnemySide()
+        {
+            var fight = NewTestFight();
+            Knock(fight.Players[0]);
+            Knock(fight.Players[1]);
+
+            Assert.AreEqual(new[] { 2, 3 }, Slots(Targeting.Choosable(fight, fight.Enemies[0], false)));
+        }
+
+        [Test]
+        public void Choosable_AReachingSkill_StillPicksAnyone_BehindACoveringHero()
+        {
+            var fight = NewTestFight();
+
+            Assert.AreEqual(new[] { 0, 1, 2, 3, 4 }, Slots(Targeting.Choosable(fight, fight.Players[0], reachesBackRow: true)));
+        }
+
+        // the lane map of 02 GDD 2 as the fighters carry it (code slot numbers), written "back slot:covering slots;..."
+        [TestCase("3-2", "3:0,1;4:1,2")]
+        [TestCase("2-3", "2:0;3:0,1;4:1")]
+        [TestCase("4-1", "4:1,2")]
+        [TestCase("1-4", "1:0;2:0;3:0;4:0")]
+        public void Covered_WhileAnyCoveringHeroStands_AndOpenWhenAllAreDown(string formation, string map)
+        {
+            foreach (var entry in map.Split(';'))
+            {
+                var backSlot = int.Parse(entry.Split(':')[0]);
+                var covering = entry.Split(':')[1].Split(',').Select(int.Parse).ToArray();
+
+                var fight = NewTestFight(playerFormation: formation, enemyFormation: formation);
+                var back = fight.Enemies[backSlot];
+                Assert.IsTrue(Targeting.Covered(fight, back), $"{formation} slot {backSlot} covered at the start");
+
+                for (var k = 0; k < covering.Length - 1; k++)
+                {
+                    Knock(fight.Enemies[covering[k]]);
+                    Assert.IsTrue(Targeting.Covered(fight, back), $"{formation} slot {backSlot} still covered by slot {covering[covering.Length - 1]}");
+                }
+                Knock(fight.Enemies[covering[covering.Length - 1]]);
+                Assert.IsFalse(Targeting.Covered(fight, back), $"{formation} slot {backSlot} open once {string.Join(",", covering)} are down");
+                CollectionAssert.Contains(Targeting.Choosable(fight, fight.Players[0], false).ToList(), back);
+            }
+        }
+
+        [Test]
+        public void Covered_IsFalse_ForFrontRowHeroes_AndForKnockedOutHeroes()
+        {
+            var fight = NewTestFight();
+            foreach (var front in fight.Enemies.Take(3)) Assert.IsFalse(Targeting.Covered(fight, front));
+
+            Knock(fight.Enemies[4]);
+            Assert.IsFalse(Targeting.Covered(fight, fight.Enemies[4]), "a fallen back-row hero is not covered, they are gone");
+        }
+
+        [Test]
+        public void Covered_LooksAtTheHeroesOwnSide()
+        {
+            var fight = NewTestFight();
+            Knock(fight.Players[0]);
+            Knock(fight.Players[1]);
+
+            Assert.IsFalse(Targeting.Covered(fight, fight.Players[3]), "their own B4 is open");
+            Assert.IsTrue(Targeting.Covered(fight, fight.Enemies[3]), "the other side's B4 still has its cover");
+        }
+
         // ---- Taunt comes before the front row (02 GDD 7.2) ----------------------------------------------
 
         [Test]
@@ -194,7 +284,7 @@ namespace HeroHQ.Tests
             Assert.AreEqual(new[] { 0, 1, 2 }, Slots(Targeting.Choosable(fight, fight.Players[0], false)));
         }
 
-        // ---- neighbours: the same row, the row closes up (02 GDD 2) -------------------------------------
+        // ---- neighbours: the same row; a fallen hero leaves a gap that they skip (02 GDD 2) --------------
 
         [TestCase(0, new[] { 1 })]
         [TestCase(1, new[] { 0, 2 })]
@@ -209,7 +299,7 @@ namespace HeroHQ.Tests
         }
 
         [Test]
-        public void Neighbours_SkipKnockedOutHeroes_TheRowClosesUp()
+        public void Neighbours_SkipKnockedOutHeroes_AcrossTheGap()
         {
             var fight = NewTestFight();
             Knock(fight.Enemies[1]);

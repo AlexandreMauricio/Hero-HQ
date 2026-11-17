@@ -1,8 +1,11 @@
 using System;
+using System.IO;
 using System.Linq;
 using HeroHQ.Rules;
+using HeroHQ.Rules.Data;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using UnityEngine;
 using static HeroHQ.Tests.TestFights;
 
 namespace HeroHQ.Tests
@@ -163,6 +166,80 @@ namespace HeroHQ.Tests
 
             Effects.Apply(fight.Enemies[3], "taunt", 2);  // a taunting back-row hero must be picked, whatever their Health
             Assert.AreEqual(fight.Enemies[3], EnemyAI.Choose(fight).Target);
+        }
+
+        [Test]
+        public void Damage_TheLowestHealthFocus_TakesABackRowHeroOnceTheirLaneIsOpen()
+        {
+            // 3-2, F1 and F2 down: B4 is open, B5 is still covered by F3 (P2a-02, 02 GDD 2)
+            var fight = AtP0();
+            fight.Players[0].Cooldown = 1;
+            fight.Enemies[0].Health = 0; fight.Enemies[0].KnockedOut = true;
+            fight.Enemies[1].Health = 0; fight.Enemies[1].KnockedOut = true;
+            fight.Enemies[2].Health = 900000;
+            fight.Enemies[3].Health = 2;                  // open and the lowest of those who can be picked
+            fight.Enemies[4].Health = 1;                  // lower still, but covered by e2
+            Assert.AreEqual(fight.Enemies[3], EnemyAI.Choose(fight).Target);
+
+            fight.Enemies[2].Health = 0; fight.Enemies[2].KnockedOut = true;
+            Assert.AreEqual(fight.Enemies[4], EnemyAI.Choose(fight).Target, "with F3 down, B5 is open too");
+        }
+
+        // ---- Threshold on the real data (P2a-02, A4; settles R17 (b)) -------------------------------------------
+
+        static GameData RealData()
+        {
+            string Read(string file) => File.ReadAllText(Path.Combine(Application.dataPath, "Data", file));
+            return GameData.Load(Read("heroes.json"), Read("classes.json"), Read("traits.json"), Read("tuning.json"),
+                                 Read("teams.json"), Read("formations.json"));
+        }
+
+        /// <summary>The Healing wall against the crew (2-3), at Ibis's first turn, with the AI's choice ready to read.</summary>
+        static Fight AtIbis(GameData data)
+        {
+            var fight = Fight.Create(data, data.Teams["healing_wall"], data.Teams["enemy_crew"], 1);
+            for (var i = 0; i < 100; i++)
+            {
+                fight.AdvanceToChoice();
+                Assert.AreEqual(Outcome.Going, fight.Outcome, "set-up: the fight is still on");
+                if (fight.Acting.Hero.Id == "ibis") return fight;
+                fight.Act(EnemyAI.Choose(fight));
+            }
+            Assert.Fail("set-up: Ibis never got a turn");
+            return null;
+        }
+
+        [Test]
+        public void RealIbis_Threshold_DrainsTheEnemyWhoActsNext_EvenInTheBackRow()
+        {
+            var data = RealData();
+            var fight = AtIbis(data);
+            Assert.AreEqual(Button.Special, EnemyAI.Choose(fight).Button, "set-up: Threshold is her choice");
+
+            // the crew stands 2-3: Kal and Hori in front, Strix (slot 2) behind Kal, covered while Kal stands
+            var strix = fight.Enemies.Single(e => e.Hero.Id == "strix");
+            Assert.AreEqual(Row.Back, strix.Row);
+            Assert.IsTrue(Targeting.Covered(fight, strix), "set-up: Kal still stands in front of Strix");
+            foreach (var e in fight.Enemies) e.Meter = 0;
+            strix.Meter = 990;
+            Assert.AreEqual(strix, fight.PredictTurns(8).First(t => t.Who.Side == Side.Enemy).Who, "set-up: Strix acts next");
+
+            Assert.AreEqual(strix, EnemyAI.Choose(fight).Target);
+        }
+
+        [Test]
+        public void RealIbis_Threshold_UnderTaunt_HitsTheTauntingHero()
+        {
+            var data = RealData();
+            var fight = AtIbis(data);
+            var halvard = fight.Enemies.Single(e => e.Hero.Id == "halvard");
+            Assert.AreEqual(Row.Back, halvard.Row);
+            Effects.Apply(halvard, "taunt", 2);
+            foreach (var e in fight.Enemies) e.Meter = 0;
+            fight.Enemies.First(e => e != halvard).Meter = 990;
+
+            Assert.AreEqual(Button.Special, EnemyAI.Choose(fight).Button);
+            Assert.AreEqual(halvard, EnemyAI.Choose(fight).Target);
         }
 
         [Test]

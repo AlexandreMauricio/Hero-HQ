@@ -81,7 +81,7 @@
                "block_chance": 0, "block_amount": 0, "crit_chance": 10, "crit_damage": 150, "will": 0, "grit": 0 },
     "basic":    { "name": "Glyph Bolt", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },
     "special":  { "name": "Threshold", "cooldown": 1, "pieces": [
-                    { "do": "damage", "target": "enemy", "power": 60 },
+                    { "do": "damage", "target": "enemy", "power": 60, "reaches_back_row": true },
                     { "do": "meter", "target": "enemy", "percent": -50 } ] },
     "ultimate": { "name": "BY THE WORD OF THOTH!", "pieces": [
                     { "do": "damage", "target": "all_enemies", "power": 80 },
