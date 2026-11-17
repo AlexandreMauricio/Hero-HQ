@@ -24,11 +24,11 @@ Build only what an approved spec asks for. Labels in the vault: **OWNER** (appro
 |---|---|
 | `Assets/Data/` | Content as JSON, six files: heroes, classes, traits, tuning, teams, formations (each formation's rows, which front slots cover each back slot, and where the boxes stand). The code never names a hero, class or trait |
 | `Assets/Scripts/Rules/` | The fight's logic as plain C#: no scene objects, nothing drawn, no waiting. Tested by EditMode tests |
-| `Assets/Scripts/Screens/` | What you see and touch; asks `Rules` what happens and plays it back |
-| `Assets/Scenes/` | Scenes (TeamSelect, Battle when they exist; `SampleScene` from the template until then) |
+| `Assets/Scripts/Screens/` | What you see and touch; asks `Rules` what happens and plays it back. Assembly `HeroHQ.Screens` (uses `HeroHQ.Rules`, uGUI, the Input System). `BattleScreen` is the one script in the Battle scene; `BattleView` builds every box by code under one Canvas (1920 × 1080, safe area, the four zones of 02 GDD 17.3). `Editor/` (assembly `HeroHQ.Screens.Editor`, editor only) holds `BattleSceneBuilder`, which makes the Battle scene |
+| `Assets/Scenes/` | `Battle.unity`, **made by `tools/make-scene.sh`, never edited by hand** (change `BattleSceneBuilder` and run it again); `SampleScene` from the template until it's replaced. The build's scene list is unchanged: open `Battle.unity` directly in the editor |
 | `Assets/Art/` | Placeholder art and the cut-in template's pieces |
 | `Assets/Tests/EditMode/` | Automated tests (assembly `HeroHQ.Tests.EditMode`) |
-| `tools/` | `test.sh` |
+| `tools/` | `test.sh` (tests), `make-scene.sh` (remakes the Battle scene) |
 
 Screen: **landscape only** (Player Settings); UI on a Canvas scaled from **1920 × 1080**, kept inside the phone's safe area; **uGUI**. Test on PC first (Game view set to a landscape phone), Android later.
 
@@ -41,6 +41,16 @@ tools/test.sh
 ```
 
 Starts Unity with no window, runs every EditMode test, prints `N tests: P passed, F failed`, and exits 0 only if all pass. `tools/test.sh ProjectSetupTests` runs a subset. Results and log: `TestResults/` (git-ignored). The first run after a fresh clone is slow (Unity rebuilds `Library/`).
+
+## Make the scene
+
+The Unity editor must be **closed**.
+
+```bash
+tools/make-scene.sh
+```
+
+Runs `HeroHQ.Screens.Editor.BattleSceneBuilder.Build` with no window and writes `Assets/Scenes/Battle.unity`: a camera, an EventSystem on the Input System, and one `Battle` object holding `BattleScreen` with the six data files. Exits 0 only if the scene was written. Log: `TestResults/make-scene.log`. In an open editor the same builder is the menu **Hero HQ > Make the Battle scene**. Run it whenever the builder changes, then `tools/test.sh` (`BattleSceneTests` checks the scene file). Commit the scene with the change: each run gives its objects new ids, so the file shows a diff even when nothing else changed.
 
 ## Git
 

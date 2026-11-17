@@ -4,7 +4,11 @@
     "references": [
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "HeroHQ.Rules"
+        "HeroHQ.Rules",
+        "HeroHQ.Screens",
+        "HeroHQ.Screens.Editor",
+        "UnityEngine.UI",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"
