@@ -98,6 +98,23 @@ namespace HeroHQ.Rules
         }
 
         /// <summary>
+        /// The heroes this button's skill will touch for <paramref name="chosen"/> (02 GDD 17.5 and 17.10 item 1: the
+        /// aiming outlines), each hero once: every piece's targets, joined. It asks <see cref="Targeting.Targets"/>, so
+        /// the outline can't disagree with the skill. Reading R19 (03 Architecture 7.7): it says who the skill is aimed
+        /// at, not what it will do to them, so a piece's condition and the hit roll are not looked at. Only standing
+        /// heroes; the player's side comes first, then the enemy side (whoever acts), each in slot order. A skill that needs a chosen
+        /// hero is refused when <paramref name="chosen"/> is null (as <see cref="Targeting.Targets"/> does). It changes
+        /// nothing and rolls nothing.
+        /// </summary>
+        public static IReadOnlyList<Fighter> WillTouch(Fight fight, Fighter actor, Button button, Fighter chosen) =>
+            Skill(actor, button).Pieces
+                .SelectMany(piece => Targeting.Targets(fight, actor, piece.Target, chosen))
+                .Where(hero => !hero.KnockedOut)
+                .Distinct()
+                .OrderBy(hero => hero.Side == Side.Player ? 0 : 1).ThenBy(hero => hero.Slot)
+                .ToList();
+
+        /// <summary>
         /// The chance, in percent, that this skill misses <paramref name="target"/> (02 GDD 6). "Can't miss" is a
         /// property of the skill: it holds if any of its pieces is marked so (reading R6, 03 Architecture 4.12).
         /// Accuracy includes the actor's moment bonuses that hold for this target now (4.6), so the chip and the roll agree.
