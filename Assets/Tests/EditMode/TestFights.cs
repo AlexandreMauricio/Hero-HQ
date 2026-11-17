@@ -15,6 +15,8 @@ namespace HeroHQ.Tests
         {
             var hero = JObject.Parse(TestData.Hero(id, speed: speed));
             hero["stats"]["health"] = 1000000;
+            // No leader bonus unless a test adds one (P1-12), so every test's damage numbers stay round.
+            hero["leader"]["bonuses"] = new JArray();
             edit?.Invoke(id, hero);
             return hero.ToString(Formatting.None);
         }

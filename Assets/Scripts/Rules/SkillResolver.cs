@@ -46,7 +46,7 @@ namespace HeroHQ.Rules
     /// <summary>
     /// Does one skill (02 GDD 6 and 7, 03 Architecture 4.5): its pieces in the written order. Built so far:
     /// Damage pieces, the hit and crit rolls, the Barrier, knockouts (P1-09); Heal, Apply effect, Clear, Turn
-    /// meter, the six piece conditions and ultimate charge (P1-10); counter-attacks (P1-11). Bonuses come with P1-12–14.
+    /// meter, the six piece conditions and ultimate charge (P1-10); counter-attacks (P1-11); fixed leader and passive bonuses in damage and heals (P1-12). Moment bonuses and Momentum: P1-13–14.
     ///
     /// A piece's condition is checked per target as the piece runs; when it is false the piece skips that
     /// target without touching it (no roll).
@@ -197,8 +197,8 @@ namespace HeroHQ.Rules
                     return events;
 
                 case "heal":
-                    // healing bonuses come with P1-12 and P1-13; no roll, no crit (02 GDD 6)
-                    var healed = DamageMath.Heal(piece.Percent.Value * scale, new double[0], target.MaxHealth, target.Health);
+                    // the healer's fixed healing bonus (P1-12; moment bonuses: P1-13); no roll, no crit (02 GDD 6)
+                    var healed = DamageMath.Heal(piece.Percent.Value * scale, new[] { actor.HealingBonus }, target.MaxHealth, target.Health);
                     target.Health += healed;
                     return new[] { new FightEvent(FightEventKind.Healed, target) { Amount = healed } };
 
@@ -258,8 +258,7 @@ namespace HeroHQ.Rules
         static int AlliesWith(Fight fight, Fighter actor, ConditionDef condition) =>
             (actor.Side == Side.Player ? fight.Players : fight.Enemies).Count(f => f != actor && Has(f, condition));
 
-        static bool Has(Fighter fighter, ConditionDef condition) =>
-            condition.Trait != null ? fighter.Hero.Traits.Contains(condition.Trait) : fighter.Hero.Class == condition.Class;
+        static bool Has(Fighter fighter, ConditionDef condition) => Bonuses.Has(fighter.Hero, condition.Trait, condition.Class);
 
         /// <summary>Sets a hero's ultimate charge, capped at 100 (02 GDD 4); an event only if it really changed.</summary>
         static IReadOnlyList<FightEvent> SetCharge(Fighter hero, double charge)
@@ -329,10 +328,14 @@ namespace HeroHQ.Rules
             return events;
         }
 
-        /// <summary>The attacker's % changes to damage dealt from effects: Offense Up +, Offense Down − (02 GDD 7.4). Momentum: P1-14; leader and passives: P1-12.</summary>
+        /// <summary>
+        /// The attacker's % changes to damage dealt: the fixed leader and passive bonus (P1-12), then Offense Up +,
+        /// Offense Down − (02 GDD 7.4). DamageMath adds them all and applies the sum once (02 GDD 6). Momentum: P1-14.
+        /// </summary>
         static IEnumerable<double> OffenseChanges(Fighter actor, IReadOnlyDictionary<string, double> tuning) =>
-            actor.Effects.Select(e => e.Kind == "offense_up" ? tuning["offense_change"]
-                                    : e.Kind == "offense_down" ? -tuning["offense_change"] : 0);
+            new[] { actor.DamageBonus }.Concat(
+                actor.Effects.Select(e => e.Kind == "offense_up" ? tuning["offense_change"]
+                                        : e.Kind == "offense_down" ? -tuning["offense_change"] : 0));
 
         /// <summary>The target's % changes to damage taken: Defense Up −, Defense Down + (02 GDD 7.4).</summary>
         static IEnumerable<double> DefenseChanges(Fighter target, IReadOnlyDictionary<string, double> tuning) =>

@@ -60,7 +60,7 @@ namespace HeroHQ.Rules
     /// Nothing here waits or draws: every call returns the list of what happened and the screen plays it back.
     /// Built so far: the clock, the end of a turn and the win check (P1-06), effects and Stun (P1-07), the
     /// buttons and Damage pieces (P1-09, SkillResolver), the other pieces, cooldown and charge (P1-10);
-    /// counters (P1-11), bonuses (P1-12) and triggers (P1-13) come with their tasks.
+    /// counters (P1-11), the fixed leader and passive bonuses (P1-12); triggers (P1-13) come with their task.
     /// </summary>
     public class Fight
     {
@@ -109,22 +109,21 @@ namespace HeroHQ.Rules
             // "3-2" = three in front, two behind: the first slots stand in the front row (02 GDD 2). The loader
             // has already checked the formation is one of the four allowed.
             var inFront = int.Parse(team.Formation.Split('-')[0]);
-            return team.Slots.Select((id, slot) =>
+            // Final stats from the named leader's skill and the passives, worked out once, here: the same
+            // calculation team select shows (02 GDD 8; 03 Architecture 4.6, P1-12).
+            return Bonuses.Preview(data, team.Slots, team.Leader).Select(b => new Fighter(side, b.Slot, b.Stat("speed"), b.Hero)
             {
-                var hero = data.Heroes[id];
-                int Stat(string name) => Whole(hero.Stats[name]);
-                return new Fighter(side, slot, Stat("speed"), hero)
-                {
-                    Row = slot < inFront ? Row.Front : Row.Back,
-                    Health = Stat("health"),
-                    MaxHealth = Stat("health"),
-                    Damage = Stat("damage"),
-                    Armor = Stat("armor"),
-                    Accuracy = Stat("accuracy"),
-                    DodgeChance = Stat("dodge_chance"),
-                    CritChance = Stat("crit_chance"),
-                    CritDamage = Stat("crit_damage"),
-                };
+                Row = b.Slot < inFront ? Row.Front : Row.Back,
+                Health = b.Stat("health"),
+                MaxHealth = b.Stat("health"),
+                Damage = b.Stat("damage"),
+                Armor = b.Stat("armor"),
+                Accuracy = b.Stat("accuracy"),
+                DodgeChance = b.Stat("dodge_chance"),
+                CritChance = b.Stat("crit_chance"),
+                CritDamage = b.Stat("crit_damage"),
+                DamageBonus = b.DamageBonus,
+                HealingBonus = b.HealingBonus,
             }).ToList();
         }
 

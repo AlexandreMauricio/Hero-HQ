@@ -65,6 +65,15 @@ namespace HeroHQ.Rules
         public int CritChance { get; set; }
         public int CritDamage { get; set; }
 
+        /// <summary>
+        /// The fixed % from leader and passive bonuses added to every damage the hero deals, with Offense Up and
+        /// the rest, applied once (02 GDD 6; 03 Architecture 4.6). Not a stat: never rounded. Set by Fight.Create (P1-12).
+        /// </summary>
+        public double DamageBonus { get; set; }
+
+        /// <summary>The fixed % from leader and passive bonuses added to every heal the hero gives (02 GDD 6, 10.2).</summary>
+        public double HealingBonus { get; set; }
+
         /// <summary>Ultimate charge from 0 to 100, fractions kept (02 GDD 4). The Ultimate is usable at 100.</summary>
         public double Charge { get; set; }
 
