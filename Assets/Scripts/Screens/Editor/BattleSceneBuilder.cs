@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -13,6 +14,8 @@ namespace HeroHQ.Screens.Editor
     {
         public const string ScenePath = "Assets/Scenes/Battle.unity";
         public static readonly string[] DataFiles = { "heroes", "classes", "traits", "tuning", "teams", "formations" };
+        /// <summary>The cut-in pictures (03 Architecture 8.5); the data names them by file name.</summary>
+        public const string CutInArtFolder = "Assets/Art/CutIns";
 
         [MenuItem("Hero HQ/Make the Battle scene")]
         static void BuildFromMenu()
@@ -48,10 +51,24 @@ namespace HeroHQ.Screens.Editor
             screen.tuning = Data("tuning");
             screen.teams = Data("teams");
             screen.formations = Data("formations");
+            screen.cutInArt = CutInArt();
 
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new IOException($"Could not save {ScenePath}");
             Debug.Log($"BattleSceneBuilder: made {ScenePath}");
+        }
+
+        // Every picture in the cut-in folder, as sprites. Unity packs a sprite the scene refers to into the build, so the
+        // cut-in finds it by name on a phone too (8.5). A picture that did not import as a sprite stops the build.
+        public static Sprite[] CutInArt()
+        {
+            var paths = Directory.GetFiles(CutInArtFolder, "*.png").Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
+            return paths.Select(path =>
+            {
+                var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+                if (sprite == null) throw new InvalidDataException($"{path} did not import as a sprite");
+                return sprite;
+            }).ToArray();
         }
 
         static TextAsset Data(string name)

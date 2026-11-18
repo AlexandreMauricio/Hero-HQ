@@ -11,6 +11,7 @@ namespace HeroHQ.Screens
     // nothing here is set by hand in the editor. P2a-07: the fight plays itself, the computer choosing for both sides.
     // P2a-08: each action is played event by event, with beats, numbers, the banner and the off look.
     // P2a-09: your side waits for your taps (arm, then commit); the enemy side is still chosen by EnemyAI.
+    // P2b-01: an ultimate plays the real cut-in (CutIn) and the hits wait for it; "seen it" is kept per hero id.
     public class BattleScreen : MonoBehaviour
     {
         [Header("The six data files (set by BattleSceneBuilder)")]
@@ -23,6 +24,12 @@ namespace HeroHQ.Screens
 
         [Tooltip("How long one beat lasts, in seconds (02 GDD 17.6). Change it while playing to feel the pace.")]
         public float beatSeconds = 0.4f;
+
+        [Tooltip("The cut-in pictures in Assets/Art/CutIns (set by BattleSceneBuilder); heroes.json names them.")]
+        public Sprite[] cutInArt;
+
+        /// <summary>The cut-in setting (02 GDD 17.8): the default until P2b-05's settings panel can change it.</summary>
+        public CutInSetting CutInSetting { get; set; } = CutInSetting.FirstTimeFullThenShort;
 
         // Phase 2a's fixed teams (04 Phases, OWNER 2026-11-17): the Greek strike against the crew. Team select is 2b.
         const string PlayerTeam = "greek_strike", EnemyTeam = "enemy_crew";
@@ -115,19 +122,78 @@ namespace HeroHQ.Screens
             }
         }
 
-        // Shows a batch of events one at a time (P2a-08). BattleView.ShowEvent takes each event into Playback, draws it
-        // and says how long to wait: a beat for what shows over a hero, 0.3 s for an ultimate's off look, 0.8 s for a
-        // skipped turn's banner, nothing for bookkeeping. At the end the effect chips and the Barrier are redrawn from
-        // the fighters. A turn counts when it starts, a skipped one too (as the fight report counts them, 4.10).
+        // Shows a batch of events one at a time (P2a-08). Show takes each event into Playback, draws it and says how
+        // long to wait: a beat for what shows over a hero, 0.8 s for a skipped turn's banner, nothing for bookkeeping;
+        // an ultimate waits for its cut-in to hand the screen back (P2b-01), or 0.3 s for the off look. At the end the
+        // effect chips and the Barrier are redrawn from the fighters. A turn counts when it starts, a skipped one too
+        // (as the fight report counts them, 4.10).
         IEnumerator Play(IReadOnlyList<FightEvent> batch)
         {
             turns += batch.Count(e => e.Kind == FightEventKind.TurnStarted);
             foreach (var e in batch)
             {
-                var hold = View.ShowEvent(e, playback, beatSeconds);
-                if (hold > 0) yield return new WaitForSeconds(hold);
+                var hold = Show(fight, playback, e, out var cutIn);
+                if (cutIn != null) yield return new WaitUntil(() => cutIn == null || cutIn.BattleShows);
+                else if (hold > 0) yield return new WaitForSeconds(hold);
             }
             View.SyncAfterAction(fight, playback);
+        }
+
+        // ---- the cut-in (P2b-01; 03 Architecture 8.1 A1, 8.5; 02 GDD 17.7) -------------------------------------------
+
+        /// <summary>
+        /// Shows one event and says how many seconds to wait. An ultimate's use starts the cut-in instead, when the
+        /// setting and the "seen" flags give full or short (<paramref name="cutIn"/> is then set: wait until it hands the
+        /// screen back, acceptance 3); with "off" it is the 0.3 s off look as in 2a. Every other event is
+        /// <see cref="BattleView.ShowEvent"/>'s. Public so a test can play events without the coroutine.
+        /// </summary>
+        public float Show(Fight fight, Playback playback, FightEvent e, out CutIn cutIn)
+        {
+            cutIn = null;
+            if (e.Kind == FightEventKind.SkillUsed && e.Button == HeroHQ.Rules.Button.Ultimate)
+            {
+                var hero = e.Who.Hero;
+                var version = CutInTiming.Pick(CutInSetting, HasSeen(hero.Id));
+                if (version != CutInVersion.Off)
+                {
+                    if (version == CutInVersion.Full) MarkSeen(hero.Id);   // reading R30: seen when the full one starts
+                    playback.Apply(e);
+                    var colours = Colours(fight.Data, hero);
+                    cutIn = CutIn.Show(View.Canvas.transform, e.Who, version, colours.background, colours.glow,
+                                       Art(hero.Cutin.Drawing), Art(hero.Cutin.Behind));
+                    return 0;
+                }
+            }
+            return View.ShowEvent(e, playback, beatSeconds);
+        }
+
+        /// <summary>The picture <paramref name="name"/> names (heroes.json's <c>drawing</c> or <c>behind</c>), or null.</summary>
+        public Sprite Art(string name) =>
+            name == null || cutInArt == null ? null : cutInArt.FirstOrDefault(s => s != null && s.name == name);
+
+        /// <summary>The hero's pantheon trait's cut-in colours (03 Architecture 3.3).</summary>
+        public static (Color background, Color glow) Colours(GameData data, HeroDef hero)
+        {
+            var colours = hero.Traits.Select(t => data.Traits[t]).First(t => t.Kind == "pantheon").CutinColors;
+            return (Hex(colours.Background), Hex(colours.Glow));
+        }
+
+        static Color Hex(string hex) =>
+            ColorUtility.TryParseHtmlString(hex, out var colour) ? colour : throw new System.FormatException($"not a colour: {hex}");
+
+        /// <summary>
+        /// "Seen it" per hero id, both sides (02 GDD 17.7), kept between runs in PlayerPrefs (a small built-in store of
+        /// named values that survives closing the game; 03 Architecture 8.5). The key is this prefix and the hero's id.
+        /// </summary>
+        public const string SeenKeyPrefix = "cutin_seen_";
+
+        public static bool HasSeen(string heroId) => PlayerPrefs.GetInt(SeenKeyPrefix + heroId, 0) == 1;
+
+        public static void MarkSeen(string heroId)
+        {
+            if (HasSeen(heroId)) return;
+            PlayerPrefs.SetInt(SeenKeyPrefix + heroId, 1);
+            PlayerPrefs.Save();
         }
 
         // ---- your turn (P2a-09; 02 GDD 17.5: arm, then commit) -----------------------------------------------------

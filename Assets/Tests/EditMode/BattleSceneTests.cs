@@ -55,6 +55,26 @@ namespace HeroHQ.Tests
         }
 
         [Test]
+        public void TheBattleScene_HoldsEveryCutInPicture_TheDataNames()
+        {
+            // P2b-01 (03 Architecture 8.5): the builder fills BattleScreen's sprite list from Assets/Art/CutIns, so the
+            // cut-in finds each drawing and behind-layer by name, in the editor and in a build.
+            WithBattleScene(scene =>
+            {
+                var s = All<BattleScreen>(scene)[0];
+                var data = GameData.Load(s.heroes.text, s.classes.text, s.traits.text, s.tuning.text, s.teams.text, s.formations.text);
+                var named = data.Heroes.Values.SelectMany(h => new[] { h.Cutin.Drawing, h.Cutin.Behind }).Where(n => n != null).ToList();
+                Assert.IsNotEmpty(named);
+                foreach (var name in named)
+                {
+                    var sprite = s.Art(name);
+                    Assert.IsNotNull(sprite, name + " is in the scene");
+                    Assert.AreEqual(BattleSceneBuilder.CutInArtFolder + "/" + name + ".png", AssetDatabase.GetAssetPath(sprite));
+                }
+            });
+        }
+
+        [Test]
         public void TheBattleScene_HasOneCamera_AndAnEventSystemOnTheInputSystem()
         {
             WithBattleScene(scene =>

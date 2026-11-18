@@ -508,7 +508,8 @@ namespace HeroHQ.Screens
 
         /// <summary>
         /// The <i>off</i> look of an ultimate (01 Vision, 17.6): a 0.1 s white flash over the whole screen, then the
-        /// hero's shout across a black band in the middle, 0.3 s in all. The real cut-in is 2b's.
+        /// hero's shout across a black band in the middle, 0.3 s in all. Since P2b-01 it is what the "off" setting shows;
+        /// full and short play the real cut-in (<see cref="CutIn"/>, started by BattleScreen.Show).
         /// </summary>
         void ShowOffLook(string shout)
         {
