@@ -147,7 +147,7 @@ namespace HeroHQ.Tests
         }
 
         [Test]
-        public void NoChoiceSkill_ArmingOutlinesEveryoneItTouches_NothingDims_OnlyTheArmedButtonAgainCommits()
+        public void NoChoiceSkill_ArmingOutlinesEveryoneItTouches_NothingDims_ATapOnAnyOutlinedHeroCommits()
         {
             var fight = AtP0();
             fight.Players[0].Charge = 100;
@@ -159,13 +159,44 @@ namespace HeroHQ.Tests
             AssertGlow(fight);
             AssertDim(fight);
 
-            screen.TapHero(fight.Enemies[0]);
-            Assert.IsNull(screen.Committed, "a hero's tap never commits a skill with no choice");
+            screen.TapHero(fight.Players[1]);
+            Assert.IsNull(screen.Committed, "a hero the skill doesn't touch does nothing");
             Assert.AreEqual(Button.Ultimate, screen.Armed);
 
+            // OWNER 2026-11-18 (2a feedback): the tap on an outlined hero is the committing tap.
+            screen.TapHero(fight.Enemies[3]);
+            Assert.AreEqual(Button.Ultimate, screen.Committed.Value.Button);
+            Assert.IsNull(screen.Committed.Value.Target);
+            AssertNothingShowing(fight);
+        }
+
+        [Test]
+        public void NoChoiceSkill_TheArmedButtonAgainStillCommits()
+        {
+            var fight = AtP0();
+            fight.Players[0].Charge = 100;
+            screen.BeginYourTurn(fight);
+            screen.TapButton(Button.Ultimate);
+            Assert.IsNull(screen.Committed, "arming alone commits nothing");
             screen.TapButton(Button.Ultimate);
             Assert.AreEqual(Button.Ultimate, screen.Committed.Value.Button);
             Assert.IsNull(screen.Committed.Value.Target);
+        }
+
+        [Test]
+        public void NoChoiceSkill_OnYourOwnSide_AnAllyTapCommits_AHeroItDoesntTouchDoesNot()
+        {
+            var fight = AtP0((id, h) =>
+            {
+                if (id == "p0") Pieces(h, "special", "{ do: 'effect', target: 'self', effect: 'offense_up', turns: 1 }");
+            });
+            screen.BeginYourTurn(fight);
+            screen.TapButton(Button.Special);
+            screen.TapHero(fight.Enemies[0]);
+            screen.TapHero(fight.Players[2]);
+            Assert.IsNull(screen.Committed, "only the outlined hero (self) counts");
+            screen.TapHero(fight.Players[0]);
+            Assert.AreEqual(Button.Special, screen.Committed.Value.Button);
         }
 
         [Test]
@@ -337,19 +368,20 @@ namespace HeroHQ.Tests
         }
 
         [Test]
-        public void HitChips_OneHeroSkill_OnTheGlowingEnemiesBelow100_TheNumberFromOptions()
+        public void HitChips_OneHeroSkill_OnEveryGlowingEnemy_Hit100Included_TheNumberFromOptions()
         {
             var fight = AtP0();
             Dodge(fight, (0, 15), (2, 22), (3, 25));   // e3 dodges too, but is covered: no glow, no chip
             screen.BeginYourTurn(fight);
             screen.TapButton(Button.Basic);
-            AssertChips(fight, Button.Basic, fight.Enemies[0], fight.Enemies[2]);
+            AssertChips(fight, Button.Basic, fight.Enemies[0], fight.Enemies[1], fight.Enemies[2]);
             Assert.AreEqual("Hit 85 %", F(fight.Enemies[0]).HitText.text);
+            Assert.AreEqual("Hit 100 %", F(fight.Enemies[1]).HitText.text, "OWNER 2026-11-17: no dodge still shows its chip");
             Assert.AreEqual("Hit 78 %", F(fight.Enemies[2]).HitText.text);
         }
 
         [Test]
-        public void HitChips_AreaSkill_OnTheOutlinedOnesOnceAimed_NoChoiceSkill_OnEveryEnemyItTouches()
+        public void HitChips_AreaSkill_OnTheOutlinedOnesOnceAimed_NoChoiceSkill_OnEveryEnemyItTouches_Hit100Included()
         {
             var fight = AtP0();
             fight.Players[0].Charge = 100;
@@ -359,14 +391,15 @@ namespace HeroHQ.Tests
             screen.TapButton(Button.Special);
             AssertChips(fight, Button.Special);                                   // nothing aimed yet: glow only
             screen.TapHero(fight.Enemies[2]);
-            AssertChips(fight, Button.Special, fight.Enemies[1]);                // e1, e2 outlined; e2 doesn't dodge
+            AssertChips(fight, Button.Special, fight.Enemies[1], fight.Enemies[2]);   // e1, e2 outlined; e2 doesn't dodge: "Hit 100 %"
+            Assert.AreEqual("Hit 100 %", F(fight.Enemies[2]).HitText.text);
             screen.TapHero(fight.Enemies[2]);                                    // the same hero again commits
             Assert.IsTrue(screen.Committed.HasValue, "set-up");
             AssertChips(fight, Button.Special);                                   // chips go with the commit
 
             screen.BeginYourTurn(fight);
             screen.TapButton(Button.Ultimate);
-            AssertChips(fight, Button.Ultimate, fight.Enemies[0], fight.Enemies[1], fight.Enemies[3], fight.Enemies[4]);
+            AssertChips(fight, Button.Ultimate, fight.Enemies.ToArray());
         }
 
         [Test]
@@ -391,6 +424,20 @@ namespace HeroHQ.Tests
                 AssertChips(fight, b);
             }
             AssertOutlined(fight, fight.Players[0]);   // the self buff outlines p0
+        }
+
+        [Test]
+        public void NoChips_OnACantMissNoChoiceSkill_ThoughEveryEnemyIsOutlined()
+        {
+            var fight = AtP0((id, h) =>
+            {
+                if (id == "p0") Pieces(h, "ultimate", "{ do: 'damage', target: 'all_enemies', power: 100, cant_miss: true }");
+            });
+            fight.Players[0].Charge = 100;
+            screen.BeginYourTurn(fight);
+            screen.TapButton(Button.Ultimate);
+            AssertOutlined(fight, fight.Enemies.ToArray());
+            AssertChips(fight, Button.Ultimate);   // OWNER 2026-11-18: "can't miss" shows no chip
         }
 
         // ---- S9: the buttons -------------------------------------------------------------------------------------

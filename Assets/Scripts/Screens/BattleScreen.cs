@@ -189,14 +189,20 @@ namespace HeroHQ.Screens
         /// <summary>
         /// A hero: with a one-hero skill armed, a hero you may choose commits at once; with an area skill, the first tap
         /// aims (the heroes it will hit are outlined), the same hero again commits, another re-aims. A hero you can't
-        /// choose commits nothing and the info strip says why. With nothing armed, or a skill that needs no choice,
-        /// nothing happens.
+        /// choose commits nothing and the info strip says why. With nothing armed, nothing happens. A skill that needs
+        /// no choice commits on a tap on any hero it will touch (they are outlined); another hero does nothing.
         /// </summary>
         public void TapHero(Fighter hero)
         {
             if (!Choosing || !Armed.HasValue) return;
             var option = fight.Options[(int)Armed.Value];
-            if (!option.NeedsChoice) return;
+            if (!option.NeedsChoice)
+            {
+                // No choice (17.5, OWNER 2026-11-18): a tap on any outlined hero fires it; any other hero does nothing.
+                if (SkillResolver.WillTouch(fight, fight.Acting, option.Button, null).Contains(hero))
+                    Commit(new Choice(Armed.Value, null));
+                return;
+            }
             if (option.Choosable.Contains(hero))
             {
                 Reason = null;
@@ -261,15 +267,17 @@ namespace HeroHQ.Screens
                         : new List<Fighter>();
             // Dimming is on the side the skill picks from only; skills that need no choice never dim (17.5).
             Side? pickSide = option != null && option.NeedsChoice && option.Choosable.Count > 0 ? option.Choosable[0].Side : (Side?)null;
+            var cantMiss = option != null && option.Skill.Pieces.Any(p => p.CantMiss);
             foreach (var pair in View.Figures)
             {
                 var hero = pair.Key;
                 var glow = option != null && option.Choosable.Contains(hero);
                 var aimed = touched.Contains(hero);
-                // The hit chip: on the heroes you may tap for a one-hero skill, on the outlined ones otherwise; only
-                // below 100 % (no chip = it lands), and never for heals or buffs (Options gives them no miss chance).
-                var chipped = option != null && (option.NeedsChoice && !AimsFirst(option) ? glow : aimed);
-                double? hit = chipped && option.MissChance.TryGetValue(hero, out var miss) && miss > 0 ? 100 - miss : (double?)null;
+                // The hit chip (OWNER 2026-11-17/18): on the heroes you may tap for a one-hero skill, on the outlined ones
+                // otherwise; on every enemy the skill can hit, "Hit 100 %" included. None for heals and buffs (Options gives
+                // them no miss chance) and none for a "can't miss" skill.
+                var chipped = option != null && !cantMiss && (option.NeedsChoice && !AimsFirst(option) ? glow : aimed);
+                double? hit = chipped && option.MissChance.TryGetValue(hero, out var miss) ? 100 - miss : (double?)null;
                 pair.Value.ShowChoosing(glow, pickSide == hero.Side && !glow, aimed, hit);
             }
         }
