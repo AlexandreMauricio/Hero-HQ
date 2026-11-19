@@ -31,7 +31,7 @@
     "cutin":    { "shout": "FROM ABOVE." }
   },
   {
-    "id": "kal", "name": "Kal & Talos", "class": "caster", "traits": ["outlaw", "greek", "tech"],
+    "id": "kal", "name": "Kal & Talos", "short_name": "Kal", "class": "caster", "traits": ["outlaw", "greek", "tech"],
     "stats": { "health": 3000, "armor": 150, "damage": 460, "speed": 90, "accuracy": 0, "dodge_chance": 0,
                "block_chance": 0, "block_amount": 0, "crit_chance": 10, "crit_damage": 150, "will": 0, "grit": 0 },
     "basic":    { "name": "Forge Fist", "pieces": [ { "do": "damage", "target": "enemy", "power": 100 } ] },

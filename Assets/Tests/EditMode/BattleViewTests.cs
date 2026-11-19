@@ -65,21 +65,31 @@ namespace HeroHQ.Tests
                     Assert.AreSame(view.Field, figure.Root.parent, "figures stand in the field zone");
                     Assert.AreEqual(new Vector2(sign * (float)at[0], -(float)at[1]), figure.Root.anchoredPosition,
                                     $"{hero}: x from the middle outward, y down from the field's top (7.1)");
-                    Assert.AreEqual(hero.Hero.Name, figure.Name.text, "the name in full (short names are 2b)");
+                    Assert.AreEqual(hero.Hero.ShortName, figure.Name.text, "the name tag says the short name (P2b-02), which is the name when the data has no short_name");
                 }
         }
 
         [Test]
         public void TheRealFormations_EveryPair_NoTwoFiguresOverlap_AndAllStayInTheFieldClearOfTheBanner()
         {
-            // S11's automated part at the 1920 x 1080 reference: a figure's footprint is its box plus the chip row above.
-            const float Middle = 960, FieldTop = 190, FieldBottom = 780, BannerBottom = 240, Side = 90;
-            var formations = Real().Formations.Values.ToList();
+            // S11's automated part at the 1920 x 1080 reference: a figure's footprint is its box, the icon row above it and
+            // the hit chip under it (P2b-02, 17.3.1: 40 + 2 + 100 + 38 = 180 px tall).
+            // P2b-02: the footprint is now 180 px tall (17.3.1's icons and hit chip), so this runs on the formations the real
+            // teams use (3-2 and 2-3, rows 180 apart); 4-1 and 1-4 (rows 135 apart) go with the formations in P2b-07, and
+            // R36 said the layout test runs on the real teams only until the board drawing (P2b-09). The bottom limit is the
+            // bottom band's top edge (800): the hit chip may hang into the 20 px gap under the field zone (780), as it did
+            // not before, but never into the band.
+            const float Middle = 960, FieldTop = 190, FieldBottom = 800, BannerBottom = 240, Side = 90;
+            var real = Real();
+            var inUse = real.Teams.Values.Select(t => t.Formation).Distinct().ToList();
+            CollectionAssert.AreEquivalent(new[] { "3-2", "2-3" }, inUse, "set-up: the real teams use these two");
+            var formations = real.Formations.Values.Where(f => inUse.Contains(f.Id)).ToList();
             Rect Footprint(FormationSlotDef slot, int sign)
             {
                 float x = Middle + sign * (float)slot.At[0], y = FieldTop + (float)slot.At[1];
-                float top = y - HeroFigure.BoxHeight / 2 - HeroFigure.ChipsGap - HeroFigure.ChipsHeight;
-                return new Rect(x - HeroFigure.Width / 2, top, HeroFigure.Width, y + HeroFigure.BoxHeight / 2 - top);
+                float top = y - HeroFigure.BoxHeight / 2 - HeroFigure.IconsRowGap - HeroFigure.IconsHeight;
+                float bottom = y + HeroFigure.BoxHeight / 2 + HeroFigure.HitChipHeight;
+                return new Rect(x - HeroFigure.Width / 2, top, HeroFigure.Width, bottom - top);
             }
 
             foreach (var mine in formations)
@@ -174,31 +184,165 @@ namespace HeroHQ.Tests
             }
         }
 
+        // ---- the effect icons and the hit chip (P2b-02; 02 GDD 17.3.1, 17.6; D2: placeholders drawn by code) -------
+
+        // A hero with these effects put on, drawn after an action as the screen draws it.
+        HeroFigure WithEffects(Fight fight, params (string kind, int turns)[] effects)
+        {
+            var hero = fight.Players[0];
+            foreach (var (kind, turns) in effects) Effects.Apply(hero, kind, turns, kind == "momentum" ? 3 : 0);
+            view.SyncAfterAction(fight, new Playback(fight));
+            return view.Figures[hero];
+        }
+
+        static string Shape(HeroFigure.Icon icon) => icon.Frame.sprite.texture.name;
+
+        // A box's place in its figure's own space (x from the figure's centre, y up from it), whatever the canvas scale.
+        static Rect InFigure(HeroFigure figure, RectTransform box)
+        {
+            var corners = new Vector3[4];
+            box.GetLocalCorners(corners);
+            var low = (Vector2)figure.Root.InverseTransformPoint(box.TransformPoint(corners[0]));
+            var high = (Vector2)figure.Root.InverseTransformPoint(box.TransformPoint(corners[2]));
+            return Rect.MinMaxRect(low.x, low.y, high.x, high.y);
+        }
+
         [Test]
-        public void EffectChips_SayTheEffectAndTurnsLeft_BuffsGreen_BadOnesRed_FourThenPlusN()
+        public void EffectIcons_ShowTheMarkAndTurnsLeft_BuffsRoundGreen_BadOnesSpikedRed()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var figure = WithEffects(fight, ("offense_up", 2), ("defense_down", 1), ("stun", 1));   // stun has no turn count
+
+            CollectionAssert.AreEqual(new[] { "offense_up", "defense_down", "stun" }, figure.Icons.Select(i => i.Kind));
+            CollectionAssert.AreEqual(new[] { false, true, true }, figure.Icons.Select(i => i.Bad));
+            CollectionAssert.AreEqual(new[] { "A+", "D-", "S" }, figure.Icons.Select(i => i.Mark.text), "the short marks of EffectLook");
+            CollectionAssert.AreEqual(new[] { "2", "1", "" }, figure.Icons.Select(i => i.Turns.text), "turns left; none for Stun");
+            Assert.AreEqual(BattleView.Green, figure.Icons[0].Frame.color, "buff: green");
+            StringAssert.Contains("Rounded", Shape(figure.Icons[0]), "buff: a rounded frame");
+            Assert.AreEqual(BattleView.Red, figure.Icons[1].Frame.color, "bad effect: red");
+            StringAssert.Contains("Spiked", Shape(figure.Icons[1]), "bad effect: a spiked frame, a different shape");
+            Assert.AreEqual(BattleView.Red, figure.Icons[2].Frame.color);
+            StringAssert.Contains("Spiked", Shape(figure.Icons[2]));
+            Assert.IsFalse(figure.Icons.Any(i => i.IsMore));
+        }
+
+        [Test]
+        public void EffectIcons_TheTurnsLeftCountDown_AsTheHolderTakesTurns()
         {
             var fight = TestFight();
             Show(fight, "3-2", "3-2");
             var hero = fight.Players[0];
-            Effects.Apply(hero, "offense_up", 2);
-            Effects.Apply(hero, "defense_down", 1);
-            Effects.Apply(hero, "stun", 1);                       // no turn count: it ends with the hero's next turn
-            view.SyncAfterAction(fight, new Playback(fight));
+            Effects.Apply(hero, "ward", 3);
             var figure = view.Figures[hero];
+            figure.ShowEffects(hero.Effects, turnsStarted: 0);
+            Assert.AreEqual("3", figure.Icons[0].Turns.text);
+            figure.ShowEffects(hero.Effects, turnsStarted: 2);
+            Assert.AreEqual("1", figure.Icons[0].Turns.text, "one more own turn to go");
+        }
 
-            CollectionAssert.AreEqual(new[] { "Offense Up 2", "Defense Down 1", "Stun" }, figure.Chips.Select(c => c.Label.text));
-            CollectionAssert.AreEqual(new[] { false, true, true }, figure.Chips.Select(c => c.Bad));
-            Assert.AreEqual(BattleView.Green, figure.Chips[0].Frame.color, "buff: green frame");
-            Assert.IsNotNull(figure.Chips[0].Frame.sprite, "buff: the rounded frame");
-            Assert.AreEqual(BattleView.Red, figure.Chips[1].Frame.color, "bad effect: red frame");
-            Assert.IsNull(figure.Chips[1].Frame.sprite, "bad effect: a square frame, a different shape");
+        [TestCase(0, 0)]
+        [TestCase(1, 1)]
+        [TestCase(4, 4)]     // four fit: four icons, no "+N"
+        [TestCase(5, 4)]     // five: three icons and "+2" in the fourth slot
+        [TestCase(8, 4)]
+        public void EffectIcons_FourSlots_TheFourthReadsPlusN_WhenThereAreMore(int requested, int slots)
+        {
+            var effects = requested;
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var all = new[] { "offense_up", "defense_up", "taunt", "ward", "counter", "barrier", "momentum", "stun" };
+            var figure = WithEffects(fight, all.Take(effects).Select(k => (k, 2)).ToArray());
+            effects = fight.Players[0].Effects.Count;                    // what the rules really put on (a Barrier of 0 isn't one)
 
-            Effects.Apply(hero, "taunt", 3);
-            Effects.Apply(hero, "counter", 2);
-            Effects.Apply(hero, "momentum", 0, amount: 1);
-            view.SyncAfterAction(fight, new Playback(fight));
-            CollectionAssert.AreEqual(new[] { "Offense Up 2", "Defense Down 1", "Stun", "Taunt 3", "+2" },
-                                      figure.Chips.Select(c => c.Label.text), "up to four, then +N (17.6)");
+            Assert.AreEqual(slots, figure.Icons.Count);
+            if (effects <= HeroFigure.MaxIcons)
+            {
+                Assert.IsFalse(figure.Icons.Any(i => i.IsMore));
+                return;
+            }
+            var more = figure.Icons[HeroFigure.MaxIcons - 1];
+            Assert.IsTrue(more.IsMore, "the fourth slot is the +N slot");
+            Assert.AreEqual("+" + (effects - (HeroFigure.MaxIcons - 1)), more.Mark.text, "N = the effects not shown");
+            Assert.AreEqual(effects, figure.Icons.Count(i => !i.IsMore) + int.Parse(more.Mark.text.Substring(1)), "icons + N = all of them");
+        }
+
+        [Test]
+        public void EffectIcons_AreFortyPixelsTwoApart_AndNeverOverlapEachOther_TheNameOrTheHitChip()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var figure = WithEffects(fight, ("offense_up", 2), ("defense_up", 2), ("taunt", 2), ("ward", 2), ("counter", 2), ("stun", 1));
+            Assert.AreEqual(4, figure.Icons.Count, "set-up: the longest row");
+
+            var icons = figure.Icons.Select(i => InFigure(figure, i.Rect)).ToList();
+            var name = InFigure(figure, figure.Name.rectTransform);
+            var chip = InFigure(figure, figure.HitChip.GetComponent<RectTransform>());   // measured though it is hidden now
+
+            foreach (var icon in icons) Assert.AreEqual(new Vector2(40, 40), icon.size, "17.3.1: 40 x 40");
+            for (int i = 1; i < icons.Count; i++)
+                Assert.AreEqual(2f, icons[i].xMin - icons[i - 1].xMax, 1e-3, "2 px apart");
+            Assert.AreEqual(0f, (icons[0].xMin + icons[3].xMax) / 2, 1e-3, "the row is centred over the box");
+
+            for (int i = 0; i < icons.Count; i++)
+            {
+                for (int j = i + 1; j < icons.Count; j++) Assert.IsFalse(icons[i].Overlaps(icons[j]), $"icons {i} and {j}");
+                Assert.IsFalse(icons[i].Overlaps(name), $"icon {i} over the name");
+                Assert.IsFalse(icons[i].Overlaps(chip), $"icon {i} over the hit chip");
+                Assert.AreEqual(HeroFigure.BoxHeight / 2 + HeroFigure.IconsRowGap, icons[i].yMin, 1e-3, "the icons stand just over the box");
+            }
+            Assert.IsFalse(name.Overlaps(chip), "the hit chip covers no name");
+            Assert.AreEqual(-HeroFigure.BoxHeight / 2, chip.yMax, 1e-3, "the chip hangs from the box's bottom edge");
+
+            // 40 + 2 + 100 + 38: the figure's whole footprint, which the layout test counts.
+            Assert.AreEqual(180f, icons.Max(i => i.yMax) - chip.yMin, 1e-3);
+        }
+
+        [Test]
+        public void TheHitChip_IsUnderTheBox_156By38_WithThirtyTwoPixelText()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var figure = view.Figures[fight.Enemies[0]];
+            figure.ShowChoosing(true, false, false, 85);
+            var chip = figure.HitChip.GetComponent<RectTransform>();
+
+            Assert.AreEqual(new Vector2(156, 38), chip.sizeDelta);
+            Assert.AreEqual(new Vector2(0.5f, 0), chip.anchorMin, "hung from the box's bottom edge");
+            Assert.AreEqual(new Vector2(0.5f, 1), chip.pivot, "its top edge on the box's bottom edge, so it hangs below");
+            Assert.AreEqual(Vector2.zero, chip.anchoredPosition);
+            Assert.AreEqual(32, figure.HitText.fontSize, "17.3.1: text 32 px");
+            Assert.AreEqual("Hit 85 %", figure.HitText.text);
+        }
+
+        [Test]
+        public void AKnockedOutHero_TakesTheIconRowWithTheBox()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var figure = WithEffects(fight, ("offense_up", 2));
+            figure.ShowKnockedOut();
+            Assert.IsFalse(figure.Box.activeSelf, "the icon row is part of the box and goes with it");
+        }
+
+        // ---- short names (P2b-02, 02 GDD 17.6, 17.3.1) ------------------------------------------------------------
+
+        [Test]
+        public void KalAndTalos_WearTheShortNameKal_OnTheTagAndTheTurnLine_EveryoneElseTheirName()
+        {
+            var data = Real();
+            var greek = data.Teams["greek_strike"];
+            var crew = data.Teams["enemy_crew"];
+            var fight = Fight.Create(data, greek, crew, seed: 1);
+            view.ShowFight(fight, data.Formations[greek.Formation], data.Formations[crew.Formation]);
+
+            var kal = fight.Players.Concat(fight.Enemies).First(f => f.Hero.Id == "kal");
+            Assert.AreEqual("Kal & Talos", kal.Hero.Name, "the full name stays in the data (hero card, cut-in)");
+            Assert.AreEqual("Kal", view.Figures[kal].Name.text, "the tag");
+            view.ShowActing(kal);
+            Assert.AreEqual("Kal's turn", view.TurnLine.text, "the turn line");
+            foreach (var hero in fight.Players.Concat(fight.Enemies).Where(f => f.Hero.Id != "kal"))
+                Assert.AreEqual(hero.Hero.Name, view.Figures[hero].Name.text, hero.Hero.Id);
         }
 
         [Test]

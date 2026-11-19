@@ -119,11 +119,7 @@ namespace HeroHQ.Rules.Data
                 "enemy", "enemy_and_neighbours", "all_enemies", "self",
                 "ally", "all_allies", "most_hurt_ally", "next_enemy",
             };
-            static readonly string[] Effects =
-            {
-                "offense_up", "offense_down", "defense_up", "defense_down", "taunt",
-                "barrier", "ward", "counter", "stun", "momentum",
-            };
+            static readonly string[] Effects = HeroHQ.Rules.Effects.Kinds.ToArray();   // the one list, 02 GDD 7.4
             // 02 GDD 7.4: these two have no turn count.
             static readonly string[] EffectsWithoutTurns = { "stun", "momentum" };
             static readonly string[] Triggers = { "fight_start", "turn_start", "attack_hits", "ally_below_half" };
@@ -188,6 +184,11 @@ namespace HeroHQ.Rules.Data
                 BonusSkill(where, "leader", hero.Leader);
                 BonusSkill(where, "passive", hero.Passive);
                 if (string.IsNullOrWhiteSpace(hero.Cutin?.Shout)) Add(where, "cutin.shout", "missing");
+                // P2b-02 (02 GDD 17.3.1): the name tag is 9 characters wide, so a longer name needs a short_name that fits.
+                if (!string.IsNullOrWhiteSpace(hero.Name) && hero.ShortName.Length > HeroDef.MaxTagLength)
+                    Add(where, "short_name", string.IsNullOrWhiteSpace(hero.ShortNameText)
+                        ? $"the name '{hero.Name}' is longer than {HeroDef.MaxTagLength} characters and has no short_name"
+                        : $"'{hero.ShortName}' is longer than {HeroDef.MaxTagLength} characters");
             }
 
             void HeroTraits(string where, HeroDef hero)

@@ -178,7 +178,7 @@ namespace HeroHQ.Screens
         public void ShowActing(Fighter acting)
         {
             foreach (var pair in figures) pair.Value.ShowActing(pair.Key == acting);
-            TurnLine.text = acting == null ? "" : $"{acting.Hero.Name}'s turn";
+            TurnLine.text = acting == null ? "" : $"{acting.Hero.ShortName}'s turn";
             TurnLine.color = acting != null && acting.Side == Side.Enemy ? Red : Blue;
         }
 
@@ -213,6 +213,13 @@ namespace HeroHQ.Screens
             public CanvasGroup Group;
             public ButtonLook Look;
             public float RestY;
+            /// <summary>P2b-02 (17.5): the small symbols for the skill's pieces and the target mark, in one row near the bottom.</summary>
+            public RectTransform SymbolRow;
+            public SkillDef Shown;
+            public readonly List<EffectLook.Symbol> Symbols = new List<EffectLook.Symbol>();
+            public EffectLook.Reach? Reach;
+            /// <summary>The dots (or the one ring, for self) of the target mark.</summary>
+            public readonly List<Image> Dots = new List<Image>();
         }
 
         /// <summary>"Skipjack's turn" in the bottom band's left part.</summary>
@@ -280,10 +287,15 @@ namespace HeroHQ.Screens
             var name = Label("Name", body, "", 32, Color.white, TextAnchor.UpperCenter);
             name.fontStyle = FontStyle.Bold;
             name.horizontalOverflow = HorizontalWrapMode.Wrap;
-            name.rectTransform.Band(8, 90, left: 8, right: 8);
-            var state = Label("State", body, "", 64, Color.white, TextAnchor.MiddleCenter);
+            name.rectTransform.Band(6, 82, left: 8, right: 8);
+            var state = Label("State", body, "", 56, Color.white, TextAnchor.MiddleCenter);
             state.fontStyle = FontStyle.Bold;
-            state.rectTransform.Band(90, size.y - 34, left: 0, right: 0);
+            state.rectTransform.Band(82, size.y - 70, left: 0, right: 0);
+
+            // P2b-02: the symbols row, 28 px tall, just above the charge bar's place (the body is size.y - 12 tall and the
+            // charge bar sits at size.y - 30 to size.y - 18, so the row is at size.y - 66 to size.y - 38).
+            var symbolRow = NewRect("Symbols", body);
+            symbolRow.Band(size.y - 66, size.y - 38, left: SymbolSide, right: SymbolSide);
 
             var charge = Panel("Charge bar", body, Track).rectTransform;
             charge.Band(size.y - 30, size.y - 18, left: 10, right: 10);
@@ -294,8 +306,64 @@ namespace HeroHQ.Screens
             return new SkillButton
             {
                 Kind = kind, Ui = ui, Rect = rect, Frame = frame, Name = name, State = state, ChargeFill = fill,
-                Outline = outline.gameObject, Group = group, RestY = restY,
+                Outline = outline.gameObject, Group = group, RestY = restY, SymbolRow = symbolRow,
             };
+        }
+
+        /// <summary>The symbols' size and gap, the target mark's dots and gap, and the row's side margin (reference pixels).</summary>
+        public const float SymbolSize = 28, SymbolGap = 4, DotSize = 12, DotGap = 3, SymbolSide = 10;
+
+        /// <summary>
+        /// 17.5's small symbols and the target mark on a button: one symbol per kind of piece on the left, the target
+        /// mark (one dot, three dots, all five dots, or a ring for self) on the right. Drawn again only when the button's
+        /// skill changes. A null skill (the buttons are locked) clears the row.
+        /// </summary>
+        void ShowSymbols(SkillButton b, SkillDef skill)
+        {
+            if (b.Shown == skill) return;
+            b.Shown = skill;
+            Clear(b.SymbolRow);
+            b.Symbols.Clear();
+            b.Dots.Clear();
+            b.Reach = null;
+            if (skill == null) return;
+
+            var x = 0f;
+            foreach (var symbol in EffectLook.Symbols(skill))
+            {
+                b.Symbols.Add(symbol);
+                var harsh = EffectLook.IsHarsh(symbol);
+                var rect = NewRect(symbol.ToString(), b.SymbolRow);
+                rect.anchorMin = rect.anchorMax = new Vector2(0, 0.5f);
+                rect.pivot = new Vector2(0, 0.5f);
+                rect.sizeDelta = new Vector2(SymbolSize, SymbolSize);
+                rect.anchoredPosition = new Vector2(x, 0);
+                var frame = Panel("Frame", rect, harsh ? Red : Green, harsh ? Spiked : Rounded);
+                if (!harsh) frame.type = Image.Type.Sliced;
+                Panel("Inside", rect, Body, Rounded).rectTransform.Inset(harsh ? 6 : 3);
+                var mark = Label("Mark", rect, EffectLook.Mark(symbol), 20, Color.white, TextAnchor.MiddleCenter);
+                mark.fontStyle = FontStyle.Bold;
+                x += SymbolSize + SymbolGap;
+            }
+
+            // The target mark, against the row's right end.
+            var reach = EffectLook.ReachOf(skill);
+            b.Reach = reach;
+            var count = EffectLook.Dots(reach);
+            var width = count * DotSize + (count - 1) * DotGap;
+            for (int i = 0; i < count; i++)
+            {
+                var rect = NewRect(reach == EffectLook.Reach.Self ? "Self ring" : "Dot", b.SymbolRow);
+                rect.anchorMin = rect.anchorMax = new Vector2(1, 0.5f);
+                rect.pivot = new Vector2(1, 0.5f);
+                rect.sizeDelta = new Vector2(DotSize, DotSize);
+                rect.anchoredPosition = new Vector2(-(width - (i + 1) * DotSize - i * DotGap), 0);
+                var dot = rect.gameObject.AddComponent<Image>();
+                dot.sprite = reach == EffectLook.Reach.Self ? Ring : Rounded;
+                dot.color = Color.white;
+                dot.raycastTarget = false;
+                b.Dots.Add(dot);
+            }
         }
 
         /// <summary>
@@ -309,6 +377,7 @@ namespace HeroHQ.Screens
             {
                 var option = options[(int)b.Kind];
                 b.Name.text = option.Skill.Name;
+                ShowSymbols(b, option.Skill);
                 var look = !option.Usable
                     ? (b.Kind == HeroHQ.Rules.Button.Ultimate ? ButtonLook.Charging : ButtonLook.Waiting)
                     : armed == b.Kind ? ButtonLook.Armed
@@ -326,6 +395,7 @@ namespace HeroHQ.Screens
             foreach (var b in buttons)
             {
                 b.Name.text = b.Kind.ToString();
+                ShowSymbols(b, null);
                 Draw(b, ButtonLook.Locked, "", 0);
             }
             if (InfoStrip != null) InfoStrip.text = "";
@@ -735,6 +805,71 @@ namespace HeroHQ.Screens
                                         SpriteMeshType.FullRect, new Vector4(15, 15, 15, 15));
                 rounded.hideFlags = HideFlags.DontSave;
                 return rounded;
+            }
+        }
+
+        static Sprite spiked;
+        /// <summary>
+        /// A white eight-pointed burst drawn by code (no art file): the frame of a bad effect and of the damage and
+        /// bad-effect symbols (P2b-02, 17.3.1: "spiked red frame = bad effect"), a shape so it reads without colour.
+        /// </summary>
+        internal static Sprite Spiked
+        {
+            get
+            {
+                if (spiked != null) return spiked;
+                const int size = 48, points = 8;
+                const float inner = 0.72f, outer = 1f, half = size / 2f;
+                var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+                {
+                    name = "Spiked (made by code)", wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave,
+                };
+                var pixels = new Color32[size * size];
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        var dx = x + 0.5f - half;
+                        var dy = y + 0.5f - half;
+                        var turn = Mathf.Atan2(dy, dx) / (2 * Mathf.PI) * points;       // whole numbers are the tips
+                        var wave = Mathf.Abs(turn - Mathf.Round(turn)) * 2;             // 0 at a tip, 1 between two tips
+                        var edge = Mathf.Lerp(outer, inner, wave) * half;               // how far out the burst reaches this way
+                        var reach = new Vector2(dx, dy).magnitude;
+                        pixels[y * size + x] = new Color32(255, 255, 255, (byte)(Mathf.Clamp01(edge - reach + 0.5f) * 255));
+                    }
+                texture.SetPixels32(pixels);
+                texture.Apply();
+                spiked = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100);
+                spiked.hideFlags = HideFlags.DontSave;
+                return spiked;
+            }
+        }
+
+        static Sprite ring;
+        /// <summary>A white ring drawn by code: the "self" mark on a button (a dot you can't miss, but hollow).</summary>
+        internal static Sprite Ring
+        {
+            get
+            {
+                if (ring != null) return ring;
+                const int size = 32;
+                const float outer = size / 2f, thickness = 4;
+                var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+                {
+                    name = "Ring (made by code)", wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave,
+                };
+                var pixels = new Color32[size * size];
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        var d = new Vector2(x + 0.5f - outer, y + 0.5f - outer).magnitude;
+                        var alpha = Mathf.Clamp01(outer - d + 0.5f) * Mathf.Clamp01(d - (outer - thickness) + 0.5f);
+                        pixels[y * size + x] = new Color32(255, 255, 255, (byte)(alpha * 255));
+                    }
+                texture.SetPixels32(pixels);
+                texture.Apply();
+                ring = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100);
+                ring.hideFlags = HideFlags.DontSave;
+                return ring;
             }
         }
 

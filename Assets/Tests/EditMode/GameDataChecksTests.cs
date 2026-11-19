@@ -375,6 +375,39 @@ namespace HeroHQ.Tests
             ExpectOne(Problems(heroes: Rowan(h => h["cutin"]["shout"] = "  ")), "rowan", "cutin.shout", "missing");
         }
 
+        // P2b-02 (03 Architecture 8.1 A2; 02 GDD 17.3.1): the name tag is 9 characters wide.
+        [Test]
+        public void HeroWithANameOverNineCharacters_AndNoShortName_IsRejected()
+        {
+            var problem = Problems(heroes: Rowan(h => h["name"] = "Rowan Whitestone"));   // 16 characters
+            ExpectOne(problem, "rowan", "short_name", "Rowan Whitestone", "9");
+            ExpectOne(Problems(heroes: Rowan(h => h["name"] = "Abcdefghij")), "rowan", "short_name");   // 10 is over
+            ExpectOne(Problems(heroes: Rowan(h => { h["name"] = "Abcdefghij"; h["short_name"] = "  "; })), "rowan", "short_name");   // blank is none
+        }
+
+        [Test]
+        public void HeroWithANameOfNineCharacters_Loads_WithOrWithoutAShortName()
+        {
+            Assert.DoesNotThrow(() => TestData.Load(heroes: Rowan(h => h["name"] = "Doc Nefer")), "exactly 9 passes");
+            var data = TestData.Load(heroes: Rowan(h => h["name"] = "Doc Nefer"));
+            Assert.AreEqual("Doc Nefer", data.Heroes["rowan"].ShortName, "no short_name: the name");
+        }
+
+        [Test]
+        public void HeroWithALongNameAndAShortName_Loads_AndTheTagUsesTheShortOne()
+        {
+            var data = TestData.Load(heroes: Rowan(h => { h["name"] = "Rowan Whitestone"; h["short_name"] = "Rowan"; }));
+            Assert.AreEqual("Rowan Whitestone", data.Heroes["rowan"].Name, "the full name stays for the hero card and the cut-in");
+            Assert.AreEqual("Rowan", data.Heroes["rowan"].ShortName);
+        }
+
+        [Test]
+        public void AShortNameThatIsItselfOverNineCharacters_IsRejected()
+        {
+            ExpectOne(Problems(heroes: Rowan(h => { h["name"] = "Rowan Whitestone"; h["short_name"] = "Whitestone"; })),
+                      "rowan", "short_name", "Whitestone", "9");   // 10 characters
+        }
+
         [Test]
         public void HeroWithoutADrawingOrBehindLayer_Loads()
         {

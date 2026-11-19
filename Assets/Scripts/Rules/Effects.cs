@@ -44,6 +44,14 @@ namespace HeroHQ.Rules
         /// <summary>The end turn of an effect that has no turn count (Stun, Momentum): it never runs out by itself.</summary>
         public const int NoEnd = int.MaxValue;
 
+        /// <summary>The ten effects (02 GDD 7.4), the one list: the data loader checks names against it and the screen's
+        /// <c>EffectLook</c> must have an icon for each (a test walks it).</summary>
+        public static readonly IReadOnlyList<string> Kinds = new[]
+        {
+            "offense_up", "offense_down", "defense_up", "defense_down", "taunt",
+            "barrier", "ward", "counter", "stun", "momentum",
+        };
+
         static readonly string[] Bad = { "offense_down", "defense_down", "stun" };
 
         // Opposites cancel (02 GDD 7.4): applying one to a hero with the other removes the other instead.

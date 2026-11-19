@@ -477,6 +477,127 @@ namespace HeroHQ.Tests
                 Assert.GreaterOrEqual(Mathf.Min(b.Rect.sizeDelta.x, b.Rect.sizeDelta.y), 144, "17.1: a must-press button is at least 144 px");
         }
 
+        // ---- P2b-02: the symbols and the target mark on a button (02 GDD 17.5) -------------------------------------
+
+        [Test]
+        public void Buttons_ShowASymbolPerKindOfPiece_AndTheTargetMark_OneDotThreeDotsAllDots()
+        {
+            var fight = AtP0((id, h) =>
+            {
+                if (id != "p0") return;
+                Pieces(h, "basic", "{ do: 'damage', target: 'enemy', power: 100 }");
+                Pieces(h, "special", "{ do: 'damage', target: 'enemy_and_neighbours', power: 100 }",
+                                     "{ do: 'effect', target: 'enemy', effect: 'stun' }");
+                Pieces(h, "ultimate", "{ do: 'damage', target: 'all_enemies', power: 100 }",
+                                      "{ do: 'effect', target: 'self', effect: 'offense_up', turns: 2 }");
+            });
+            screen.BeginYourTurn(fight);
+            var (basic, special, ultimate) = (View.Buttons[0], View.Buttons[1], View.Buttons[2]);
+
+            CollectionAssert.AreEqual(new[] { EffectLook.Symbol.Damage }, basic.Symbols);
+            Assert.AreEqual(EffectLook.Reach.One, basic.Reach);
+            Assert.AreEqual(1, basic.Dots.Count, "one dot");
+
+            CollectionAssert.AreEqual(new[] { EffectLook.Symbol.Damage, EffectLook.Symbol.BadEffect }, special.Symbols);
+            Assert.AreEqual(EffectLook.Reach.Three, special.Reach);
+            Assert.AreEqual(3, special.Dots.Count, "three dots");
+
+            CollectionAssert.AreEqual(new[] { EffectLook.Symbol.Damage, EffectLook.Symbol.Buff }, ultimate.Symbols);
+            Assert.AreEqual(EffectLook.Reach.All, ultimate.Reach);
+            Assert.AreEqual(5, ultimate.Dots.Count, "all dots");
+            Assert.AreEqual(2, basic.SymbolRow.childCount, "one symbol and one dot, nothing else in the row");
+        }
+
+        [Test]
+        public void Buttons_ASelfSkill_ShowsARingNotADot()
+        {
+            var fight = AtP0((id, h) =>
+            {
+                if (id == "p0") Pieces(h, "basic", "{ do: 'effect', target: 'self', effect: 'defense_up', turns: 2 }");
+            });
+            screen.BeginYourTurn(fight);
+            var basic = View.Buttons[0];
+
+            CollectionAssert.AreEqual(new[] { EffectLook.Symbol.Buff }, basic.Symbols);
+            Assert.AreEqual(EffectLook.Reach.Self, basic.Reach);
+            Assert.AreEqual(1, basic.Dots.Count);
+            StringAssert.Contains("Ring", basic.Dots[0].sprite.texture.name, "self is a hollow ring, not a dot");
+            StringAssert.Contains("Rounded", View.Buttons[1].Dots[0].sprite.texture.name, "a target is a filled dot");
+        }
+
+        [Test]
+        public void Buttons_LockedOrNotChoosing_ShowNoSymbols_AndTheyComeBackWithTheNextChoice()
+        {
+            var fight = AtP0();
+            screen.BeginYourTurn(fight);
+            Assert.IsTrue(View.Buttons.All(b => b.Symbols.Count > 0 && b.Dots.Count > 0), "set-up: every button has them");
+
+            View.ShowButtonsLocked();
+            foreach (var b in View.Buttons)
+            {
+                Assert.AreEqual(0, b.Symbols.Count, b.Kind.ToString());
+                Assert.AreEqual(0, b.Dots.Count, b.Kind.ToString());
+                Assert.IsNull(b.Reach);
+                Assert.AreEqual(0, b.SymbolRow.childCount);
+            }
+
+            screen.BeginYourTurn(fight);
+            Assert.IsTrue(View.Buttons.All(b => b.Symbols.Count > 0 && b.Dots.Count > 0), "back with the next choice");
+        }
+
+        [Test]
+        public void ButtonSymbols_ReDrawOnlyWhenTheSkillChanges()
+        {
+            var fight = AtP0();
+            screen.BeginYourTurn(fight);
+            var before = View.Buttons[0].SymbolRow.GetChild(0);
+            screen.TapButton(Button.Basic);                     // arming redraws the button's look, not its symbols
+            Assert.AreSame(before, View.Buttons[0].SymbolRow.GetChild(0));
+        }
+
+        [Test]
+        public void ButtonSymbols_TheWidestRowFitsTheButton_AndStandsClearOfTheNameAndTheState()
+        {
+            // Four symbols and the five-dot mark is the widest row there can be (17.5 lists five kinds; none of the
+            // real skills uses more than four, EffectLookTests).
+            const float widest = 4 * BattleView.SymbolSize + 3 * BattleView.SymbolGap + 5 * BattleView.DotSize + 4 * BattleView.DotGap;
+            const float bodyInset = 2 * 6;
+            Assert.LessOrEqual(widest, BattleView.ButtonWidth - bodyInset - 2 * BattleView.SymbolSide, "the narrowest button");
+
+            var fight = AtP0();
+            screen.BeginYourTurn(fight);
+            foreach (var b in View.Buttons)
+            {
+                var row = Within(b, b.SymbolRow);
+                Assert.IsFalse(row.Overlaps(Within(b, b.Name.rectTransform)), $"{b.Kind}: the row over the skill name");
+                Assert.IsFalse(row.Overlaps(Within(b, b.State.rectTransform)), $"{b.Kind}: the row over the big state line");
+                Assert.GreaterOrEqual(row.xMin, 0, $"{b.Kind}: inside the button");
+                Assert.LessOrEqual(row.xMax, b.Rect.sizeDelta.x, $"{b.Kind}: inside the button");
+            }
+        }
+
+        // A box's place inside its button (x from the left, y up from the bottom), whatever the canvas scale.
+        static Rect Within(BattleView.SkillButton b, RectTransform box)
+        {
+            var corners = new Vector3[4];
+            box.GetLocalCorners(corners);
+            var low = (Vector2)b.Rect.InverseTransformPoint(box.TransformPoint(corners[0]));
+            var high = (Vector2)b.Rect.InverseTransformPoint(box.TransformPoint(corners[2]));
+            var origin = -Vector2.Scale(b.Rect.pivot, b.Rect.sizeDelta);   // the button's left-bottom corner in its own space
+            return Rect.MinMaxRect(low.x - origin.x, low.y - origin.y, high.x - origin.x, high.y - origin.y);
+        }
+
+        [Test]
+        public void TheTurnLine_SaysTheShortName_WhenTheHeroHasOne()
+        {
+            var fight = AtP0((id, h) =>
+            {
+                if (id == "p0") { h["name"] = "Pelagia Stormborn"; h["short_name"] = "Pelagia"; }
+            });
+            View.ShowActing(fight.Acting);
+            Assert.AreEqual("Pelagia's turn", View.TurnLine.text);
+        }
+
         [Test]
         public void OnAnEnemysTurn_TheButtonsAreLocked_AndNoTapDoesAnything()
         {

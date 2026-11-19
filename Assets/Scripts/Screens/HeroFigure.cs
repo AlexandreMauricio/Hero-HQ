@@ -10,26 +10,39 @@ namespace HeroHQ.Screens
     /// Health bar with its number and a Barrier stretch, the gold charge bar with ULT at 100, the effect chips above
     /// the box, the acting ring, and a grey empty slot that stays when the hero falls. Plain C#: it draws what it is
     /// told and knows no rules. P2a-09: the tap, glow, dim, the shield, the aiming outline and the amber hit chip.
+    /// P2b-02: the words on the effect chips became small icons (02 GDD 17.3.1's sizes), the hit chip moved under the
+    /// box, and the name tag says the hero's short name.
     /// </summary>
     public sealed class HeroFigure
     {
         /// <summary>The box, in reference pixels. A figure's <c>at</c> (formations.json) is the box's centre.</summary>
         public const float Width = 280, BoxHeight = 100;
-        /// <summary>The chip row above the box and the gap under it: the figure's whole footprint is 134 px tall.</summary>
-        public const float ChipsHeight = 32, ChipsGap = 2;
-        /// <summary>Up to four chips, then "+N" (17.6).</summary>
-        public const int MaxChips = 4;
+        /// <summary>
+        /// The icon row above the box and the gap under it (02 GDD 17.3.1: four slots of 40 px, 2 px apart), and the hit
+        /// chip under the box (156 x 38, R31 and 17.3.1): the figure's whole footprint is 180 px tall.
+        /// </summary>
+        public const float IconSize = 40, IconGap = 2, IconsHeight = 40, IconsRowGap = 2, HitChipWidth = 156, HitChipHeight = 38;
+        /// <summary>Four slots; with more than four effects the fourth reads "+N" (17.3.1).</summary>
+        public const int MaxIcons = 4;
+        const int MarkSize = 20, DigitSize = 28, MoreSize = 28;
 
-        /// <summary>One effect chip: its words, its frame, and whether it is a bad effect.</summary>
-        public sealed class Chip
+        /// <summary>One effect icon: its frame, the short mark and the turns left in the corner; or the "+N" slot.</summary>
+        public sealed class Icon
         {
-            public Text Label;
+            /// <summary>The effect's data name; null for the "+N" slot.</summary>
+            public string Kind;
+            public RectTransform Rect;
             public Image Frame;
+            /// <summary>The short mark, or "+N" on the last slot.</summary>
+            public Text Mark;
+            /// <summary>Turns left, bold in the lower-right corner; empty for Stun and Momentum, which have no turn count.</summary>
+            public Text Turns;
             public bool Bad;
+            public bool IsMore => Kind == null;
         }
 
-        readonly RectTransform chipRow;
-        readonly List<Chip> chips = new List<Chip>();
+        readonly RectTransform iconRow;
+        readonly List<Icon> icons = new List<Icon>();
 
         /// <summary>Makes the box in the field zone, its centre <paramref name="at"/> from the zone's top middle.</summary>
         public HeroFigure(Fighter who, RectTransform field, Vector2 at)
@@ -82,7 +95,7 @@ namespace HeroHQ.Screens
             body.Inset(4);
 
             // Inside the body (92 px): name 44, Health bar 30, charge bar 10, from the top.
-            Name = BattleView.Label("Name", body, who.Hero.Name, 40, Color.white, TextAnchor.MiddleLeft);
+            Name = BattleView.Label("Name", body, who.Hero.ShortName, 40, Color.white, TextAnchor.MiddleLeft);
             Name.rectTransform.Band(0, 44, left: 8, right: 70);
             Name.resizeTextForBestFit = true;          // "Kal & Talos" is the longest name: it shrinks a little, never below 32
             Name.resizeTextMinSize = 32;
@@ -107,17 +120,13 @@ namespace HeroHQ.Screens
             charge.Band(82, 92, left: 6, right: 6);
             ChargeFill = BattleView.Panel("Charge", charge, BattleView.Gold).rectTransform;
 
-            // The chip row sits just above the box (outside it) and goes with the box when the hero falls.
-            chipRow = BattleView.NewRect("Effect chips", frame.rectTransform);
-            chipRow.anchorMin = new Vector2(0, 1);
-            chipRow.anchorMax = new Vector2(1, 1);
-            chipRow.offsetMin = new Vector2(0, ChipsGap);
-            chipRow.offsetMax = new Vector2(0, ChipsGap + ChipsHeight);
-            var row = chipRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            row.childAlignment = TextAnchor.MiddleCenter;
-            row.spacing = 4;
-            row.childControlWidth = row.childControlHeight = true;
-            row.childForceExpandWidth = row.childForceExpandHeight = false;
+            // The icon row sits just above the box (outside it) and goes with the box when the hero falls. Its icons are
+            // placed by hand (centred on the row), so their places are plain numbers a test can read.
+            iconRow = BattleView.NewRect("Effect icons", frame.rectTransform);
+            iconRow.anchorMin = new Vector2(0, 1);
+            iconRow.anchorMax = new Vector2(1, 1);
+            iconRow.offsetMin = new Vector2(0, IconsRowGap);
+            iconRow.offsetMax = new Vector2(0, IconsRowGap + IconsHeight);
 
             // P2a-09: the shield of a covered back-row hero, on the box's side that faces the middle (where the front row
             // stands); drawn after the box so a dimmed box doesn't dim it.
@@ -130,12 +139,14 @@ namespace HeroHQ.Screens
             Shield = shield.gameObject;
             Shield.SetActive(false);
 
-            // P2a-09: the amber hit chip, centred on the box's top edge (reading R27).
+            // P2a-09: the amber hit chip. P2b-02 (R31, 17.3.1): hung just under the box, so it covers neither the icons
+            // nor the name; 156 x 38 with 32 px text.
             var chip = BattleView.Panel("Hit chip", Root, BattleView.Amber, BattleView.Rounded);
             chip.type = Image.Type.Sliced;
             var chipRect = chip.rectTransform;
-            chipRect.anchorMin = chipRect.anchorMax = new Vector2(0.5f, 1);
-            chipRect.sizeDelta = new Vector2(170, 44);
+            chipRect.anchorMin = chipRect.anchorMax = new Vector2(0.5f, 0);
+            chipRect.pivot = new Vector2(0.5f, 1);
+            chipRect.sizeDelta = new Vector2(HitChipWidth, HitChipHeight);
             chipRect.anchoredPosition = Vector2.zero;
             HitText = BattleView.Label("Text", chipRect, "", 32, BattleView.Body, TextAnchor.MiddleCenter);
             HitText.fontStyle = FontStyle.Bold;
@@ -165,7 +176,8 @@ namespace HeroHQ.Screens
         public RectTransform HealthFill { get; }
         public RectTransform BarrierFill { get; }
         public RectTransform ChargeFill { get; }
-        public IReadOnlyList<Chip> Chips => chips;
+        /// <summary>The effect icons in the order the effects were put on, the "+N" slot last when there are more than four.</summary>
+        public IReadOnlyList<Icon> Icons => icons;
         public bool KnockedOut { get; private set; }
 
         /// <summary>
@@ -190,35 +202,72 @@ namespace HeroHQ.Screens
         }
 
         /// <summary>
-        /// The effect chips, in the order the effects were put on: the effect in words and the turns left (none for
-        /// Stun and Momentum, which have no turn count); buffs in a rounded green chip, bad effects in a square red one;
-        /// up to four, then "+N".
+        /// The effect icons (02 GDD 17.3.1), in the order the effects were put on: a rounded green frame for a buff, a
+        /// spiked red one for a bad effect, a short mark inside and the turns left in the corner (none for Stun and
+        /// Momentum, which have no turn count). Up to four slots; with five or more effects the fourth slot reads "+N",
+        /// N being the effects not shown, so the icons plus N are all of them. The words are in the hero card (P2b-03).
         /// </summary>
         public void ShowEffects(IReadOnlyList<Effect> effects, int turnsStarted)
         {
-            BattleView.Clear(chipRow);
-            chips.Clear();
-            for (int i = 0; i < effects.Count && i < MaxChips; i++)
+            BattleView.Clear(iconRow);
+            icons.Clear();
+            var overflow = effects.Count > MaxIcons;
+            var shown = overflow ? MaxIcons - 1 : effects.Count;
+            var slots = shown + (overflow ? 1 : 0);
+            var left = -(slots * IconSize + (slots - 1) * IconGap) / 2;   // the row is centred over the box
+
+            for (int i = 0; i < slots; i++)
             {
-                var e = effects[i];
-                var words = SkillText.Words(e.Kind);
-                if (e.EndsAfterTurn != Effects.NoEnd) words += " " + (e.EndsAfterTurn - turnsStarted);
-                var bad = Effects.IsBad(e.Kind);
-                AddChip(words, bad ? BattleView.Red : BattleView.Green, bad ? null : BattleView.Rounded, bad);
+                var centre = left + i * (IconSize + IconGap) + IconSize / 2;
+                icons.Add(i < shown ? EffectIcon(effects[i], turnsStarted, centre) : MoreIcon(effects.Count - shown, centre));
             }
-            if (effects.Count > MaxChips) AddChip("+" + (effects.Count - MaxChips), BattleView.Grey, BattleView.Rounded, false);
         }
 
-        void AddChip(string words, Color color, Sprite sprite, bool bad)
+        Icon EffectIcon(Effect effect, int turnsStarted, float centre)
         {
-            var frame = BattleView.Panel("Chip", chipRow, color, sprite);
-            if (sprite != null) frame.type = Image.Type.Sliced;
-            var pad = frame.gameObject.AddComponent<HorizontalLayoutGroup>();
-            pad.padding = new RectOffset(10, 10, 0, 0);
-            pad.childControlWidth = pad.childControlHeight = true;
-            var label = BattleView.Label("Text", frame.rectTransform, words, 28, Color.white, TextAnchor.MiddleCenter);
-            label.fontStyle = FontStyle.Bold;
-            chips.Add(new Chip { Label = label, Frame = frame, Bad = bad });
+            var look = EffectLook.For(effect.Kind);
+            var rect = BattleView.NewRect(effect.Kind, iconRow);
+            Place(rect, centre);
+
+            // Buff: a rounded green frame. Bad: a spiked red one. A shape as well as a colour, so it reads without colour.
+            var frame = BattleView.Panel("Frame", rect, look.Bad ? BattleView.Red : BattleView.Green,
+                                         look.Bad ? BattleView.Spiked : BattleView.Rounded);
+            if (!look.Bad) frame.type = Image.Type.Sliced;
+            var inside = BattleView.Panel("Inside", rect, BattleView.Body, BattleView.Rounded);
+            inside.rectTransform.Inset(look.Bad ? 8 : 4);
+            if (!look.Bad) inside.type = Image.Type.Sliced;
+
+            var mark = BattleView.Label("Mark", rect, look.Mark, MarkSize, Color.white, TextAnchor.UpperLeft);
+            mark.fontStyle = FontStyle.Bold;
+            mark.rectTransform.offsetMin = new Vector2(7, 0);
+            mark.rectTransform.offsetMax = new Vector2(0, -6);
+
+            var turns = BattleView.Label("Turns", rect, "", DigitSize, Color.white, TextAnchor.LowerRight);
+            turns.fontStyle = FontStyle.Bold;
+            turns.gameObject.AddComponent<Outline>().effectDistance = new Vector2(2, -2);
+            if (effect.EndsAfterTurn != Effects.NoEnd) turns.text = (effect.EndsAfterTurn - turnsStarted).ToString();
+
+            return new Icon { Kind = effect.Kind, Rect = rect, Frame = frame, Mark = mark, Turns = turns, Bad = look.Bad };
+        }
+
+        Icon MoreIcon(int more, float centre)
+        {
+            var rect = BattleView.NewRect("More", iconRow);
+            Place(rect, centre);
+            var frame = BattleView.Panel("Frame", rect, BattleView.Grey, BattleView.Rounded);
+            frame.type = Image.Type.Sliced;
+            var mark = BattleView.Label("Mark", rect, "+" + more, MoreSize, Color.white, TextAnchor.MiddleCenter);
+            mark.fontStyle = FontStyle.Bold;
+            return new Icon { Rect = rect, Frame = frame, Mark = mark };
+        }
+
+        // An icon IconSize square, its centre at x on the row, standing on the row's bottom edge.
+        static void Place(RectTransform rect, float centre)
+        {
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0);
+            rect.pivot = new Vector2(0.5f, 0);
+            rect.sizeDelta = new Vector2(IconSize, IconSize);
+            rect.anchoredPosition = new Vector2(centre, 0);
         }
 
         public void ShowActing(bool acting) => Ring.SetActive(acting && !KnockedOut);

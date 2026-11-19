@@ -29,6 +29,21 @@ namespace HeroHQ.Tests
             Assert.DoesNotThrow(() => Load(), "GameData.Load collects every problem of 03 Architecture 3.4 and throws with the list");
         }
 
+        // ---- short names (P2b-02) ---------------------------------------------------------------------------------
+
+        [Test]
+        public void OnlyKalAndTalos_HasAShortName_AndEveryTagFitsNineCharacters()
+        {
+            foreach (var hero in data.Heroes.Values)
+            {
+                Assert.LessOrEqual(hero.ShortName.Length, 9, $"{hero.Id}'s name tag");
+                Assert.AreEqual(hero.Id == "kal", !string.IsNullOrWhiteSpace(hero.ShortNameText),
+                                $"{hero.Id}: only Kal & Talos needs a short_name (17.6)");
+            }
+            Assert.AreEqual("Kal", data.Heroes["kal"].ShortName);
+            Assert.AreEqual("Kal & Talos", data.Heroes["kal"].Name, "the full name stays");
+        }
+
         // ---- formations (03 Architecture 7.1; 02 GDD 2's lane map) -------------------------------------------------
 
         // Written "front|front|...": "-" for a front slot, "1,2" for the front slots (numbered from 1, as the file does)

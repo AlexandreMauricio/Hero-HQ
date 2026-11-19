@@ -16,6 +16,12 @@ namespace HeroHQ.Rules.Data
     {
         [JsonProperty("id")] public string Id { get; private set; }
         [JsonProperty("name")] public string Name { get; private set; }
+        /// <summary>What the name tag and the turn line say when the name is too long for the tag (P2b-02): left out in the data for most heroes.</summary>
+        [JsonProperty("short_name")] public string ShortNameText { get; private set; }
+        /// <summary>The longest a name tag may be (02 GDD 17.3.1: "Doc Nefer" fits).</summary>
+        public const int MaxTagLength = 9;
+        /// <summary>The name for the name tag and the turn line: <c>short_name</c> if the data has one, else <see cref="Name"/>.</summary>
+        [JsonIgnore] public string ShortName => string.IsNullOrWhiteSpace(ShortNameText) ? Name : ShortNameText;
         /// <summary>Id of a class in classes.json.</summary>
         [JsonProperty("class")] public string Class { get; private set; }
         /// <summary>Ids of traits in traits.json (one side, one pantheon, one origin).</summary>
