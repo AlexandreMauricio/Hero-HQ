@@ -43,6 +43,10 @@ namespace HeroHQ.Screens
             public RectTransform Rect;
             public Text Initials;
             public GameObject Strike;
+            /// <summary>P2b-03 (17.4): the white outline a hold on one of this hero's entries lights on all of them (a UI Outline effect on the frame, off until asked).</summary>
+            public Outline LitOutline;
+            public Hold Hold;
+            public bool Lit => LitOutline != null && LitOutline.enabled;
         }
 
         public Canvas Canvas { get; private set; }
@@ -77,6 +81,21 @@ namespace HeroHQ.Screens
         public Action EmptyTapped;
         /// <summary>One of the three skill buttons was tapped.</summary>
         public Action<HeroHQ.Rules.Button> ButtonTapped;
+
+        // ---- holds (P2b-03; 02 GDD 17.1, 17.4, 17.5): BattleScreen sets these; the view only passes them on ------------
+
+        /// <summary>A finger has been held 0.4 s on a hero's figure (<c>false</c>) or on one of their turn-bar entries (<c>true</c>).</summary>
+        public Action<Fighter, bool> HeroHeld;
+        /// <summary>A finger has been held 0.4 s on a skill button.</summary>
+        public Action<HeroHQ.Rules.Button> ButtonHeld;
+        /// <summary>The finger lifted after any hold (or the held box was destroyed): the card closes, the lights go out.</summary>
+        public Action HoldEnded;
+
+        /// <summary>The fight on show (set by <see cref="ShowFight"/>); the hero card reads the class and trait names from its data.</summary>
+        public Fight Fight { get; private set; }
+
+        /// <summary>The hero card's box (P2b-03).</summary>
+        public HeroCardView Card { get; } = new HeroCardView();
 
         public void Build(Transform parent)
         {
@@ -121,6 +140,7 @@ namespace HeroHQ.Screens
 
             BuildBottomBand();
             BuildEnd();
+            Card.Build(SafeArea);   // last, so it draws over everything in the safe area
         }
 
         // ---- the fight on the field ------------------------------------------------------------------------------
@@ -131,10 +151,12 @@ namespace HeroHQ.Screens
         /// </summary>
         public void ShowFight(Fight fight, FormationDef players, FormationDef enemies)
         {
-            Clear(Field);
+            Fight = fight;
+            // The lists go first: a box destroyed while held calls HoldEnded, which walks them (P2b-03).
             figures.Clear();
-            Clear(BarRow);
             bar.Clear();
+            Clear(Field);
+            Clear(BarRow);
             End.SetActive(false);
             foreach (var (team, formation) in new[] { (fight.Players, players), (fight.Enemies, enemies) })
                 foreach (var hero in team)
@@ -142,7 +164,10 @@ namespace HeroHQ.Screens
                     var at = formation.Slots[hero.Slot].At;
                     var x = (float)at[0] * (hero.Side == Side.Player ? -1 : 1);
                     var figure = new HeroFigure(hero, Field, new Vector2(x, -(float)at[1]));
-                    figure.Tap.onClick.AddListener(() => HeroTapped?.Invoke(hero));
+                    // P2b-03: the click that ends a hold is not a tap (the hold's own rule), so it is asked first.
+                    figure.Tap.onClick.AddListener(() => { if (!figure.Hold.ConsumeClick()) HeroTapped?.Invoke(hero); });
+                    figure.Hold.Started = () => HeroHeld?.Invoke(hero, false);
+                    figure.Hold.Ended = () => HoldEnded?.Invoke();
                     figure.ShowShield(Targeting.Covered(fight, hero));
                     figures[hero] = figure;
                 }
@@ -211,6 +236,7 @@ namespace HeroHQ.Screens
             public RectTransform ChargeFill;
             public GameObject Outline;
             public CanvasGroup Group;
+            public Hold Hold;
             public ButtonLook Look;
             public float RestY;
             /// <summary>P2b-02 (17.5): the small symbols for the skill's pieces and the target mark, in one row near the bottom.</summary>
@@ -280,7 +306,10 @@ namespace HeroHQ.Screens
             var ui = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
             ui.targetGraphic = frame;
             ui.transition = Selectable.Transition.None;
-            ui.onClick.AddListener(() => ButtonTapped?.Invoke(kind));
+            var hold = rect.gameObject.AddComponent<Hold>();   // P2b-03 (17.5): a hold reads the sentence and arms nothing
+            ui.onClick.AddListener(() => { if (!hold.ConsumeClick()) ButtonTapped?.Invoke(kind); });
+            hold.Started = () => ButtonHeld?.Invoke(kind);
+            hold.Ended = () => HoldEnded?.Invoke();
             var body = Panel("Body", frame.rectTransform, Body).rectTransform;
             body.Inset(6);
 
@@ -306,7 +335,7 @@ namespace HeroHQ.Screens
             return new SkillButton
             {
                 Kind = kind, Ui = ui, Rect = rect, Frame = frame, Name = name, State = state, ChargeFill = fill,
-                Outline = outline.gameObject, Group = group, RestY = restY, SymbolRow = symbolRow,
+                Outline = outline.gameObject, Group = group, RestY = restY, SymbolRow = symbolRow, Hold = hold,
             };
         }
 
@@ -612,8 +641,8 @@ namespace HeroHQ.Screens
         /// </summary>
         public void ShowBar(IReadOnlyList<PredictedTurn> turns)
         {
+            bar.Clear();   // first: see ShowFight
             Clear(BarRow);
-            bar.Clear();
             var width = turns.Count == 0 ? 0 : NowSize + (turns.Count - 1) * (EntrySize + EntryGap);
             var x = -width / 2;
             for (int i = 0; i < turns.Count; i++)
@@ -629,11 +658,21 @@ namespace HeroHQ.Screens
         {
             var who = turn.Who;
             var mine = who.Side == Side.Player;
+
             var frame = Panel(who.Hero.Name, BarRow, mine ? Blue : Red);
             var rect = frame.rectTransform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = new Vector2(size, size);
             rect.anchoredPosition = new Vector2(x, 0);
+            // A hold on an entry opens that hero's card (17.4); a plain tap on it does nothing, so there is no Button.
+            frame.raycastTarget = true;
+            var lit = frame.gameObject.AddComponent<Outline>();   // a thick white edge round the frame while lit
+            lit.effectColor = Color.white;
+            lit.effectDistance = new Vector2(8, -8);
+            lit.enabled = false;
+            var hold = frame.gameObject.AddComponent<Hold>();
+            hold.Started = () => HeroHeld?.Invoke(who, true);
+            hold.Ended = () => HoldEnded?.Invoke();
             var inside = Panel("Inside", rect, Body).rectTransform;
             inside.Inset(6);
 
@@ -665,8 +704,30 @@ namespace HeroHQ.Screens
             return new BarEntry
             {
                 Who = who, Skipped = turn.Skipped, Now = now, Diamond = !mine, Dimmed = turn.Skipped,
-                Rect = rect, Initials = initials, Strike = strike.gameObject,
+                Rect = rect, Initials = initials, Strike = strike.gameObject, LitOutline = lit, Hold = hold,
             };
+        }
+
+        // ---- holds: what a hold shows (P2b-03) -------------------------------------------------------------------------
+
+        /// <summary>Opens the hero card with this content.</summary>
+        public void ShowCard(HeroCard card) => Card.Show(card);
+
+        /// <summary>
+        /// A hold on a turn-bar entry (17.4): every entry of <paramref name="hero"/> lights up and their figure on the
+        /// field gets the bright ring. Null puts every light out.
+        /// </summary>
+        public void ShowSpot(Fighter hero)
+        {
+            foreach (var entry in bar) entry.LitOutline.enabled = hero != null && entry.Who == hero;
+            foreach (var pair in figures) pair.Value.ShowSpot(hero != null && pair.Key == hero);
+        }
+
+        /// <summary>The card closes and every hold light goes out.</summary>
+        public void HideHold()
+        {
+            Card.Hide();
+            ShowSpot(null);
         }
 
         // ---- the seed and the end --------------------------------------------------------------------------------

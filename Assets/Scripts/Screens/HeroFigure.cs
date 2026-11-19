@@ -59,6 +59,8 @@ namespace HeroHQ.Screens
             Tap = Root.gameObject.AddComponent<UnityEngine.UI.Button>();
             Tap.targetGraphic = tapArea;
             Tap.transition = Selectable.Transition.None;
+            // P2b-03: a finger held 0.4 s on the box opens the hero card (and the click that ends it counts for nothing).
+            Hold = Root.gameObject.AddComponent<Hold>();
 
             // Drawn in this order: the empty slot under everything, the rings just behind the box so they show as outlines.
             var slot = BattleView.Panel("Empty slot", Root, BattleView.Grey);
@@ -77,6 +79,12 @@ namespace HeroHQ.Screens
             outline.rectTransform.Inset(-16);
             AimOutline = outline.gameObject;
             AimOutline.SetActive(false);
+
+            // P2b-03: a hold on this hero's turn-bar entry rings the figure (17.4): a bright ring just outside the others.
+            var spot = BattleView.Panel("Spot ring", Root, BattleView.LightBlue);
+            spot.rectTransform.Inset(-24);
+            SpotRing = spot.gameObject;
+            SpotRing.SetActive(false);
 
             var glow = BattleView.Panel("Glow", Root, new Color(1, 1, 1, 0.45f));
             glow.rectTransform.Inset(-12);
@@ -281,6 +289,11 @@ namespace HeroHQ.Screens
 
         /// <summary>The tap on this box (BattleView passes it to BattleScreen.TapHero).</summary>
         public UnityEngine.UI.Button Tap { get; }
+        /// <summary>P2b-03: the press-and-hold on this box. The click listener asks <see cref="Hold.ConsumeClick"/> first.</summary>
+        public Hold Hold { get; }
+        /// <summary>P2b-03 (17.4): the ring a hold on this hero's bar entry puts on the field. Off unless asked.</summary>
+        public GameObject SpotRing { get; }
+        public void ShowSpot(bool on) => SpotRing.SetActive(on && !KnockedOut);
         /// <summary>You may tap this hero for the armed skill.</summary>
         public GameObject Glow { get; }
         /// <summary>The armed skill will touch this hero.</summary>
@@ -323,6 +336,7 @@ namespace HeroHQ.Screens
             Box.SetActive(false);
             Ring.SetActive(false);
             TargetRing.SetActive(false);
+            SpotRing.SetActive(false);
             ShowChoosing(false, false, false, null);
             Shield.SetActive(false);
         }

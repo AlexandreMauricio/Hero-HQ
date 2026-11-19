@@ -12,6 +12,7 @@ namespace HeroHQ.Screens
     // P2a-08: each action is played event by event, with beats, numbers, the banner and the off look.
     // P2a-09: your side waits for your taps (arm, then commit); the enemy side is still chosen by EnemyAI.
     // P2b-01: an ultimate plays the real cut-in (CutIn) and the hits wait for it; "seen it" is kept per hero id.
+    // P2b-03: a hold on a figure or a turn-bar entry opens the hero card; a hold on a button reads its sentence.
     public class BattleScreen : MonoBehaviour
     {
         [Header("The six data files (set by BattleSceneBuilder)")]
@@ -60,6 +61,9 @@ namespace HeroHQ.Screens
             View.HeroTapped = TapHero;
             View.EmptyTapped = TapEmpty;
             View.ButtonTapped = TapButton;
+            View.HeroHeld = HoldHero;
+            View.ButtonHeld = HoldButton;
+            View.HoldEnded = EndHold;
         }
 
         void Update()
@@ -82,6 +86,8 @@ namespace HeroHQ.Screens
                 var seed = Random.Range(1, 1000000);
                 Debug.Log($"Battle: {PlayerTeam} against {EnemyTeam}, seed {seed}");
                 fight = Fight.Create(Data, players, enemies, seed);
+                PlayerLeaderId = players.Leader;
+                EnemyLeaderId = enemies.Leader;
                 playback = new Playback(fight);
                 turns = 0;
                 View.ShowFight(fight, Data.Formations[players.Formation], Data.Formations[enemies.Formation]);
@@ -194,6 +200,50 @@ namespace HeroHQ.Screens
             if (HasSeen(heroId)) return;
             PlayerPrefs.SetInt(SeenKeyPrefix + heroId, 1);
             PlayerPrefs.Save();
+        }
+
+        // ---- holds (P2b-03; 02 GDD 17.1, 17.4, 17.5; 03 Architecture 8.1 A3) ------------------------------------------
+        //
+        // A finger held 0.4 s (Hold) opens the hero card, or reads a button's sentence; lifting closes it. A hold never
+        // arms, commits or re-aims: these methods touch no tap state, and the click that ends a hold is dropped by Hold.
+
+        /// <summary>The hero ids of the two named leaders (teams.json), set when a fight starts; the card shows the leader skill only for them.</summary>
+        public string PlayerLeaderId { get; set; }
+        public string EnemyLeaderId { get; set; }
+
+        /// <summary>The hero whose card is open, or null.</summary>
+        public Fighter CardOf { get; private set; }
+
+        /// <summary>
+        /// A hold on a hero's figure, or on one of their turn-bar entries (<paramref name="fromBar"/>): their card opens;
+        /// from the bar, every entry of theirs lights and their figure gets the bright ring (17.4). Public so a test can hold.
+        /// </summary>
+        public void HoldHero(Fighter hero, bool fromBar)
+        {
+            var data = View.Fight?.Data ?? Data;
+            if (data == null) return;
+            var leader = hero.Hero.Id == (hero.Side == Side.Player ? PlayerLeaderId : EnemyLeaderId);
+            CardOf = hero;
+            View.ShowCard(HeroCard.Of(data, hero, leader));
+            if (fromBar) View.ShowSpot(hero);
+        }
+
+        /// <summary>
+        /// A hold on a skill button (17.5): the info strip shows that skill's sentence, even for a button that is grey
+        /// (what will my ultimate do?). Nothing is armed. Only while your hero is choosing, when there are skills to read.
+        /// </summary>
+        public void HoldButton(Button button)
+        {
+            if (!Choosing) return;
+            View.ShowInfo(SkillText.Sentence(fight.Options[(int)button].Skill));
+        }
+
+        /// <summary>The finger lifted: the card closes, the lights go out, and the info strip says what it said before.</summary>
+        public void EndHold()
+        {
+            CardOf = null;
+            View.HideHold();
+            if (Choosing) ShowChoosing();
         }
 
         // ---- your turn (P2a-09; 02 GDD 17.5: arm, then commit) -----------------------------------------------------

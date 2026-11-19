@@ -237,5 +237,88 @@ namespace HeroHQ.Tests
                 }
             }
         }
+
+        // ---- leader skills and passives (P2b-03; 02 GDD 17.10 item 3) -----------------------------------------------------
+
+        static BonusSkillDef Bonus(string json) => JsonConvert.DeserializeObject<BonusSkillDef>(json);
+
+        [Test]
+        public void ABonus_ReadsAsAPercentOnAStat_ForWhoItIsFor()
+        {
+            Assert.AreEqual("+20 % Damage for every Tech ally",
+                SkillText.LeaderSentence(Bonus("{ 'bonuses': [ { 'stat': 'damage', 'percent': 20, 'who': { 'trait': 'tech' } } ] }")));
+            Assert.AreEqual("+20 % Crit Chance for every Hunter ally",
+                SkillText.LeaderSentence(Bonus("{ 'bonuses': [ { 'stat': 'crit_chance', 'percent': 20, 'who': { 'class': 'hunter' } } ] }")));
+            Assert.AreEqual("+10 % Speed for every ally",
+                SkillText.LeaderSentence(Bonus("{ 'bonuses': [ { 'stat': 'speed', 'percent': 10 } ] }")));
+            Assert.AreEqual("+12.5 % Armor for every Hero ally; +15 % Health for every Hero ally",
+                SkillText.LeaderSentence(Bonus("{ 'bonuses': [ { 'stat': 'armor', 'percent': 12.5, 'who': { 'trait': 'hero' } }, { 'stat': 'health', 'percent': 15, 'who': { 'trait': 'hero' } } ] }")));
+        }
+
+        [Test]
+        public void APassiveBonus_NeedsNoWho_AndSaysItsCondition()
+        {
+            Assert.AreEqual("+5 % Dodge Chance for each other ally that is Greek",
+                SkillText.PassiveSentence(Bonus("{ 'bonuses': [ { 'stat': 'dodge_chance', 'percent': 5, 'if': { 'test': 'per_ally_with', 'trait': 'greek' } } ] }")));
+            Assert.AreEqual("+100 % Crit Chance if it is this hero's first attack",
+                SkillText.PassiveSentence(Bonus("{ 'bonuses': [ { 'stat': 'crit_chance', 'percent': 100, 'if': { 'test': 'first_attack' } } ] }")));
+        }
+
+        [Test]
+        public void ATrigger_SaysWhen_AndWho_AndWhatItDoes()
+        {
+            Assert.AreEqual("At the start of the fight, every Greek ally: fill their own turn meter by 50 %",
+                SkillText.LeaderSentence(Bonus("{ 'triggers': [ { 'when': 'fight_start', 'who': { 'trait': 'greek' }, 'pieces': [ { 'do': 'meter', 'target': 'self', 'percent': 50 } ] } ] }")));
+            Assert.AreEqual("At the start of its turn: Counter on itself for 1 turn",
+                SkillText.PassiveSentence(Bonus("{ 'triggers': [ { 'when': 'turn_start', 'pieces': [ { 'do': 'effect', 'target': 'self', 'effect': 'counter', 'turns': 1 } ] } ] }")));
+            Assert.AreEqual("When an ally falls below half Health: Taunt on itself for 1 turn",
+                SkillText.PassiveSentence(Bonus("{ 'triggers': [ { 'when': 'ally_below_half', 'pieces': [ { 'do': 'effect', 'target': 'self', 'effect': 'taunt', 'turns': 1 } ] } ] }")));
+            Assert.AreEqual("Whenever its attack hits: Momentum on itself",
+                SkillText.PassiveSentence(Bonus("{ 'triggers': [ { 'when': 'attack_hits', 'pieces': [ { 'do': 'effect', 'target': 'self', 'effect': 'momentum' } ] } ] }")));
+        }
+
+        [Test]
+        public void ANamedBonusSkill_StartsWithItsName()
+        {
+            Assert.AreEqual("Crew: +10 % Damage for every ally",
+                SkillText.LeaderSentence(Bonus("{ 'name': 'Crew', 'bonuses': [ { 'stat': 'damage', 'percent': 10 } ] }")));
+        }
+
+        [TestCase("skipjack", "At the start of the fight, every Greek ally: fill their own turn meter by 50 %", "+5 % Dodge Chance for each other ally that is Greek")]
+        [TestCase("strix", "+20 % Crit Chance for every Hunter ally", "+100 % Crit Chance if it is this hero's first attack")]
+        [TestCase("kal", "+20 % Damage for every Tech ally", "+20 % Damage for each other ally that is Tech")]
+        [TestCase("halvard", "+15 % Health for every Hero ally; +15 % Armor for every Hero ally", "When an ally falls below half Health: Taunt on itself for 1 turn")]
+        [TestCase("thordis", "+20 % Damage for every Outlaw ally", "Whenever its attack hits: Momentum on itself")]
+        [TestCase("ibis", "+20 % Armor for every Sworn ally; At the start of the fight, every Sworn ally: Ward on themselves for 2 turns", "At the start of the fight: Ward on itself for 2 turns, then Ward on the most hurt ally for 2 turns")]
+        [TestCase("hori", "+20 % Damage for every Egyptian ally", "At the start of its turn: Counter on itself for 1 turn")]
+        [TestCase("doc_nefer", "At the start of its turn, every ally: heal themselves for 3 % of max Health", "+20 % Healing if it is Outlaw")]
+        public void TheEightRealHeroes_LeaderSkillAndPassive_ReadAsTheirKitIdeaDoes(string hero, string leader, string passive)
+        {
+            var h = data.Heroes[hero];
+            Assert.AreEqual(leader, SkillText.LeaderSentence(h.Leader));
+            Assert.AreEqual(passive, SkillText.PassiveSentence(h.Passive));
+        }
+
+        [Test]
+        public void All16RealLeaderSkillsAndPassives_GiveASentenceWithNoRawDataName()
+        {
+            var all = data.Heroes.Values.SelectMany(h => new[] { (h.Leader, true), (h.Passive, false) }).ToList();
+            Assert.AreEqual(16, all.Count, "set-up: eight heroes, a leader skill and a passive each");
+
+            foreach (var (def, leader) in all)
+            {
+                var sentence = leader ? SkillText.LeaderSentence(def) : SkillText.PassiveSentence(def);
+                Assert.IsNotEmpty(sentence);
+                Assert.IsFalse(sentence.Contains("_"), $"'{sentence}' shows a raw data name (underscore)");
+                StringAssert.DoesNotContain("null", sentence);
+                // the ids as the file writes them (lower case) never show: "dodge_chance", "greek", "ward"...
+                var raw = (def.Bonuses ?? new BonusDef[0]).SelectMany(b => new[] { b.Stat, b.Who?.Trait, b.Who?.Class, b.If?.Trait, b.If?.Class })
+                    .Concat((def.Triggers ?? new TriggerDef[0]).SelectMany(t => new[] { t.Who?.Trait, t.Who?.Class }
+                        .Concat(t.Pieces.Select(p => p.Effect))))
+                    .Where(r => r != null);
+                foreach (var id in raw)
+                    StringAssert.DoesNotContain(id, sentence, $"'{sentence}' shows the data name '{id}'");
+            }
+        }
     }
 }

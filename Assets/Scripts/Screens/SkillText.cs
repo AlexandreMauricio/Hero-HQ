@@ -10,8 +10,10 @@ namespace HeroHQ.Screens
     /// One plain-English sentence per skill, built from the skill's pieces (03 Architecture 7.7, 02 GDD 17.5 and 17.10
     /// item 3), so the info strip can't disagree with what the rules do. Plain C#: it reads the data classes only and
     /// knows no hero, class, trait or effect by name; it turns data names into words ("offense_up" becomes "Offense
-    /// Up"). It is the first, simple version: leader skills and passives get no sentence yet, and a trait or class is
-    /// written as its id in capitals ("greek" is "Greek"), which is also its name in today's data.
+    /// Up"). A trait or class is
+    /// written as its id in capitals ("greek" is "Greek"), which is also its name in today's data. P2b-03 added
+    /// <see cref="LeaderSentence"/> and <see cref="PassiveSentence"/> (02 GDD 17.10 item 3), built from the same pieces,
+    /// for the hero card and, in P2b-10, for team select.
     ///
     /// The shape: <c>Name: piece, then piece, then piece</c>. Example (02 GDD 17.5): "Return to Sender: 150 % damage to
     /// one enemy, then 150 % more if it hasn't acted yet this fight".
@@ -29,7 +31,7 @@ namespace HeroHQ.Screens
             foreach (var piece in skill.Pieces)
             {
                 var again = piece.Target == "ally" ? allyChosen : enemyChosen;
-                phrases.Add(Phrase(piece, previous, again));
+                phrases.Add(Phrase(piece, previous, again, "self"));
                 if (piece.Target == "enemy" || piece.Target == "enemy_and_neighbours") enemyChosen = true;
                 if (piece.Target == "ally") allyChosen = true;
                 previous = piece;
@@ -37,9 +39,10 @@ namespace HeroHQ.Screens
             return skill.Name + ": " + string.Join(", then ", phrases);
         }
 
-        static string Phrase(PieceDef piece, PieceDef previous, bool again)
+        /// <summary><paramref name="self"/>: how "self" reads, "self" in a skill, "itself" in a passive, "themselves" in a leader skill's trigger.</summary>
+        static string Phrase(PieceDef piece, PieceDef previous, bool again, string self)
         {
-            var who = Who(piece.Target, again);
+            var who = Who(piece.Target, again, self);
             string text;
             switch (piece.Do)
             {
@@ -56,6 +59,9 @@ namespace HeroHQ.Screens
                 case "clear":
                     text = piece.Count == null ? $"clear all bad effects from {who}"
                          : $"clear {piece.Count} bad effect{(piece.Count == 1 ? "" : "s")} from {who}";
+                    break;
+                case "meter" when piece.Target == "self" && self != "self":
+                    text = $"{(piece.Percent >= 0 ? "fill" : "drain")} {(self == "itself" ? "its" : "their")} own turn meter by {Num(Math.Abs(piece.Percent ?? 0))} %";
                     break;
                 case "meter":
                     text = piece.Percent >= 0 ? $"fill the turn meter of {who} by {Num(piece.Percent)} %"
@@ -83,15 +89,66 @@ namespace HeroHQ.Screens
             return flags.Count == 0 ? text : $"{text} ({string.Join(", ", flags)})";
         }
 
+        // ---- leader skills and passives (P2b-03; 02 GDD 17.10 item 3) -----------------------------------------------
+
+        /// <summary>
+        /// A leader skill in words, from its bonuses and triggers: "+20 % Damage for every Tech ally" and, for a trigger,
+        /// "At the start of the fight, every Greek ally: fill their own turn meter by 50 %". Several parts are joined
+        /// with "; ". The name comes first when the data gives one.
+        /// </summary>
+        public static string LeaderSentence(BonusSkillDef leader) => Bonus(leader, true);
+
+        /// <summary>A passive in words: "+5 % Dodge Chance for each other ally that is Greek", "When an ally falls below half Health: Taunt on itself for 1 turn".</summary>
+        public static string PassiveSentence(BonusSkillDef passive) => Bonus(passive, false);
+
+        static string Bonus(BonusSkillDef def, bool leader)
+        {
+            var parts = new List<string>();
+            foreach (var b in def.Bonuses ?? new BonusDef[0])
+            {
+                var text = $"+{Num(b.Percent)} % {Words(b.Stat)}";
+                if (leader) text += " for " + (b.Who == null ? "every ally" : "every " + Words(b.Who.Trait ?? b.Who.Class) + " ally");
+                parts.Add(b.If == null ? text : text + " " + Condition(b.If));
+            }
+            foreach (var t in def.Triggers ?? new TriggerDef[0])
+            {
+                var who = !leader ? "" : t.Who == null ? " every ally" : " every " + Words(t.Who.Trait ?? t.Who.Class) + " ally";
+                var self = leader ? "themselves" : "itself";
+                var pieces = new List<string>();
+                PieceDef previous = null;
+                foreach (var piece in t.Pieces)
+                {
+                    pieces.Add(Phrase(piece, previous, false, self));
+                    previous = piece;
+                }
+                parts.Add($"{When(t.When)}{(leader ? "," + who : "")}: {string.Join(", then ", pieces)}");
+            }
+            var sentence = string.Join("; ", parts);
+            return string.IsNullOrEmpty(def.Name) ? sentence : def.Name + ": " + sentence;
+        }
+
+        /// <summary>The four trigger moments of 02 GDD 8.</summary>
+        static string When(string when)
+        {
+            switch (when)
+            {
+                case "fight_start": return "At the start of the fight";
+                case "turn_start": return "At the start of its turn";
+                case "attack_hits": return "Whenever its attack hits";
+                case "ally_below_half": return "When an ally falls below half Health";
+                default: throw new ArgumentException($"SkillText has no words for the trigger moment '{when}'.");
+            }
+        }
+
         /// <summary>The eight targets of 02 GDD 7.2. <paramref name="again"/>: the chosen hero was named by an earlier piece.</summary>
-        static string Who(string target, bool again)
+        static string Who(string target, bool again, string self = "self")
         {
             switch (target)
             {
                 case "enemy": return again ? "that enemy" : "one enemy";
                 case "enemy_and_neighbours": return again ? "that enemy and their neighbours" : "one enemy and their neighbours";
                 case "all_enemies": return "all enemies";
-                case "self": return "self";
+                case "self": return self;
                 case "ally": return again ? "that ally" : "one ally";
                 case "all_allies": return "all allies";
                 case "most_hurt_ally": return "the most hurt ally";
