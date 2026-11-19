@@ -15,6 +15,7 @@ namespace HeroHQ.Screens
     // P2b-03: a hold on a figure or a turn-bar entry opens the hero card; a hold on a button reads its sentence.
     // P2b-04: a tap on a hero you can't pick shakes it; the view slides the buttons in on your choice and out on your commit.
     // P2b-05: the gear opens the settings panel, which pauses the game (Time.timeScale 0); Cut-ins is kept in PlayerPrefs.
+    // P2b-06: the fight ends on the result panel (VICTORY or DEFEAT, the turns, your heroes standing, one Play again button).
     public class BattleScreen : MonoBehaviour
     {
         [Header("The six data files (set by BattleSceneBuilder)")]
@@ -63,7 +64,7 @@ namespace HeroHQ.Screens
         Fight fight;
         Playback playback;
         int turns;
-        bool newFightTapped;
+        bool playAgainPressed;
 
         void Start()
         {
@@ -152,13 +153,36 @@ namespace HeroHQ.Screens
                     View.ShowActing(null);
                 }
 
-                View.ShowBar(fight.PredictTurns(barLength));
                 Debug.Log($"Battle: {fight.Outcome} after {turns} turns (seed {seed})");
-                newFightTapped = false;
-                View.ShowEnd(fight.Outcome, turns, () => newFightTapped = true);
-                yield return new WaitUntil(() => newFightTapped);      // a tap starts a new fight in place
+                ShowResult();
+                yield return new WaitUntil(() => playAgainPressed);    // Play again starts a new fight (a new seed, the same two teams)
             }
         }
+
+        // ---- the result (P2b-06; 02 GDD 17.8; 03 Architecture 8.1 A6, R34) --------------------------------------------------
+
+        /// <summary>
+        /// The turns in a batch of events, counted as the fight report counts them (4.10): every <c>TurnStarted</c>, a
+        /// stunned, skipped turn included.
+        /// </summary>
+        public static int TurnsIn(IReadOnlyList<FightEvent> batch) => batch.Count(e => e.Kind == FightEventKind.TurnStarted);
+
+        /// <summary>
+        /// The fight is decided: the result panel opens with the turns counted so far and how many of <b>your</b> heroes are
+        /// standing (a defeat gives 0 of 5, R34). Public so a test can open it without playing a whole fight.
+        /// </summary>
+        public void ShowResult()
+        {
+            playAgainPressed = false;
+            var standing = fight.Players.Count(h => !h.KnockedOut);
+            View.ShowEnd(fight.Outcome, turns, standing, fight.Players.Count, PlayAgain);
+        }
+
+        /// <summary>The Play again button: the loop starts a new fight with a new seed (team select takes over in P2b-11).</summary>
+        public void PlayAgain() => playAgainPressed = true;
+
+        /// <summary>The result's button was pressed and the loop has not yet started the next fight.</summary>
+        public bool PlayAgainPressed => playAgainPressed;
 
         // Shows a batch of events one at a time (P2a-08). Show takes each event into Playback, draws it and says how
         // long to wait: a beat for what shows over a hero, 0.8 s for a skipped turn's banner, nothing for bookkeeping;
@@ -167,7 +191,7 @@ namespace HeroHQ.Screens
         // (as the fight report counts them, 4.10).
         IEnumerator Play(IReadOnlyList<FightEvent> batch)
         {
-            turns += batch.Count(e => e.Kind == FightEventKind.TurnStarted);
+            turns += TurnsIn(batch);
             foreach (var e in batch)
             {
                 var hold = Show(fight, playback, e, out var cutIn);

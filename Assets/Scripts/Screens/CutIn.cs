@@ -236,7 +236,7 @@ namespace HeroHQ.Screens
             // Unity's built-in font for now (OWNER D3), bold and slanted, white, thick dark outline, pantheon-colour
             // shadow (01 Vision lettering), shrunk if the widest line is over 800 px, as the mock-up does.
             var size = ShoutSize;
-            var texts = lines.Select(l => Lettering("Shout line", l, (int)size, Color.white, glow)).ToList();
+            var texts = lines.Select(l => Lettering("Shout line", Shout, l, (int)size, Color.white, glow)).ToList();
             var widest = texts.Max(t => t.preferredWidth);
             if (widest > ShoutMaxWidth)
             {
@@ -250,18 +250,23 @@ namespace HeroHQ.Screens
             shoutLines.AddRange(texts);
 
             var nameY = -(firstY + (lines.Count - 1) * lineHeight + size * 0.75f);
-            NameLine = Lettering("Name", $"— {who.Hero.Name.ToUpperInvariant()} —", (int)NameSize, Color.white, null);
+            NameLine = Lettering("Name", Shout, $"— {who.Hero.Name.ToUpperInvariant()} —", (int)NameSize, Color.white, null);
             NameLine.rectTransform.anchoredPosition = new Vector2(0, nameY);
             if (!Rival) return;
             // The RIVAL tag beside the name (02 GDD 17.7): the one piece that differs on the enemy's side.
-            RivalTag = Lettering("Rival", "RIVAL", (int)NameSize, BattleView.Red, null);
+            RivalTag = Lettering("Rival", Shout, "RIVAL", (int)NameSize, BattleView.Red, null);
             RivalTag.rectTransform.anchoredPosition =
                 new Vector2(NameLine.preferredWidth / 2 + 24 + RivalTag.preferredWidth / 2, nameY);
         }
 
-        Text Lettering(string name, string text, int size, Color color, Color? shadow)
+        /// <summary>
+        /// One line of the cut-in's loud lettering: bold italic, a dark outline and, if given, a drop shadow, centred in
+        /// <paramref name="parent"/>. The shout, the name, the RIVAL tag and the result's VICTORY and DEFEAT all go through
+        /// here, so the later change to the Bangers font (03 Architecture 8.5) reaches every one of them (P2b-06).
+        /// </summary>
+        internal static Text Lettering(string name, Transform parent, string text, int size, Color color, Color? shadow)
         {
-            var label = BattleView.Label(name, Shout, text, size, color, TextAnchor.MiddleCenter);
+            var label = BattleView.Label(name, parent, text, size, color, TextAnchor.MiddleCenter);
             label.fontStyle = FontStyle.BoldAndItalic;
             var rect = label.rectTransform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);

@@ -16,6 +16,7 @@ namespace HeroHQ.Screens
     // P2b-04: the bar's entries slide, and the three buttons exist only while your hero is choosing (they slide in and out;
     // the bottom band's right corner shows the acting hero's face and turn line the rest of the time).
     // P2b-05: the gear in the top strip and the settings panel (SettingsPanel); ClearShow takes a cut-in and banner away.
+    // P2b-06: the end part is ResultPanel (VICTORY or DEFEAT in the cut-in's lettering, then the turns, your heroes standing and Play again).
     public class BattleView
     {
         const float ReferenceWidth = 1920, ReferenceHeight = 1080;
@@ -62,10 +63,10 @@ namespace HeroHQ.Screens
         /// <summary>The bar's entries live here, centred in the top strip.</summary>
         public RectTransform BarRow { get; private set; }
         public Text Seed { get; private set; }
-        public GameObject End { get; private set; }
-        public Text EndTitle { get; private set; }
-        public Text EndLine { get; private set; }
-        public UnityEngine.UI.Button EndButton { get; private set; }
+        /// <summary>The result screen (P2b-06): VICTORY or DEFEAT, then the panel with Play again.</summary>
+        public ResultPanel Result { get; private set; }
+        /// <summary>The result screen's box, on while the result shows.</summary>
+        public GameObject End => Result.gameObject;
 
         readonly Dictionary<Fighter, HeroFigure> figures = new Dictionary<Fighter, HeroFigure>();
         readonly List<BarEntry> bar = new List<BarEntry>();
@@ -145,7 +146,7 @@ namespace HeroHQ.Screens
             fieldButton.onClick.AddListener(() => EmptyTapped?.Invoke());
 
             BuildBottomBand();
-            BuildEnd();
+            Result = ResultPanel.Build(SafeArea);   // a plain child, no sorting of its own: the gear and panel (own Canvas) stay above it
             Card.Build(SafeArea);   // last, so it draws over everything in the safe area
             Settings.Build(TopStrip, Canvas.transform);   // P2b-05: both carry their own sorting, so they stay above a cut-in
         }
@@ -164,7 +165,7 @@ namespace HeroHQ.Screens
             bar.Clear();
             Clear(Field);
             Clear(BarRow);
-            End.SetActive(false);
+            Result.Hide();
             foreach (var (team, formation) in new[] { (fight.Players, players), (fight.Enemies, enemies) })
                 foreach (var hero in team)
                 {
@@ -575,6 +576,7 @@ namespace HeroHQ.Screens
                 if (child.name == "Cut-in" || child.name == "Off look" || child.name == "Off look flash") Mover.Remove(child);
             }
             Clear(Banner);
+            Result.Hide();
         }
 
         /// <summary>The info strip's words: the armed skill's sentence, a reason, or nothing.</summary>
@@ -904,35 +906,21 @@ namespace HeroHQ.Screens
 
         public void ShowSeed(int seed) => Seed.text = $"Seed {seed}";
 
-        void BuildEnd()
-        {
-            var shade = Panel("End", SafeArea, new Color(0, 0, 0, 0.75f));
-            shade.raycastTarget = true;
-            End = shade.gameObject;
-            EndButton = End.AddComponent<UnityEngine.UI.Button>();
-            EndButton.targetGraphic = shade;
-
-            EndTitle = Label("Title", shade.rectTransform, "", 160, Gold, TextAnchor.MiddleCenter);
-            EndTitle.fontStyle = FontStyle.Bold;
-            EndTitle.rectTransform.Band(300, 500, left: 0, right: 0);
-            EndLine = Label("Turns", shade.rectTransform, "", 48, Color.white, TextAnchor.MiddleCenter);
-            EndLine.rectTransform.Band(520, 590, left: 0, right: 0);
-            Label("Hint", shade.rectTransform, "Tap to play again", 40, HealthColor, TextAnchor.MiddleCenter)
-                .rectTransform.Band(640, 700, left: 0, right: 0);
-            End.SetActive(false);
-        }
-
-        /// <summary>VICTORY or DEFEAT in big letters and "Fight took N turns"; a tap anywhere calls <paramref name="onTap"/>.</summary>
-        public void ShowEnd(Outcome outcome, int turns, Action onTap)
+        /// <summary>
+        /// The result (P2b-06; 02 GDD 17.8): the turn bar clears, nobody is acting (the corner's face and "name's turn" go)
+        /// and the buttons are away, then <see cref="ResultPanel"/> slams VICTORY or DEFEAT in and, after about 1.5 s,
+        /// shows "Fight took N turns · M of 5 heroes standing" with one Play again button that calls
+        /// <paramref name="onPlayAgain"/>. <paramref name="standing"/> counts your heroes on their feet. No tap anywhere else does anything.
+        /// </summary>
+        public void ShowEnd(Outcome outcome, int turns, int standing, int of, Action onPlayAgain)
         {
             if (outcome == Outcome.Going) throw new ArgumentException("The fight is still going.", nameof(outcome));
-            EndTitle.text = outcome == Outcome.Won ? "VICTORY" : "DEFEAT";
-            EndTitle.color = outcome == Outcome.Won ? Gold : Red;
-            EndLine.text = $"Fight took {turns} turns";
-            EndButton.onClick.RemoveAllListeners();
-            EndButton.onClick.AddListener(() => onTap());
-            End.transform.SetAsLastSibling();
-            End.SetActive(true);
+            bar.Clear();   // first: a box destroyed while held calls HoldEnded, which walks the list (see ShowFight)
+            Clear(BarRow);
+            ShowActing(null);
+            if (ButtonsShown) HideButtons();
+            Result.Show(outcome, turns, standing, of, onPlayAgain);
+            Result.transform.SetAsLastSibling();
         }
 
         // ---- the safe area (P2a-04) ------------------------------------------------------------------------------

@@ -401,20 +401,23 @@ namespace HeroHQ.Tests
             Assert.AreEqual("Seed 123456", view.Seed.text);
         }
 
+        // P2b-06 changes this test on purpose (03 8.10 names P2a-07's end-text tests): ShowEnd now also takes how many of
+        // your heroes stand, the line says so, and the whole-screen "tap anywhere" box is gone: only the Play again button
+        // starts a new fight (ResultTests holds the rest of the result's checks).
         [TestCase(Outcome.Won, "VICTORY")]
         [TestCase(Outcome.Lost, "DEFEAT")]
-        public void TheEnd_SaysWhoWon_AndTheTurns_AndATapStartsANewFightInPlace(Outcome outcome, string title)
+        public void TheEnd_SaysWhoWon_TheTurnsAndWhoStands_AndPlayAgainStartsANewFightInPlace(Outcome outcome, string title)
         {
             var fight = TestFight();
             Show(fight, "3-2", "3-2");
             Assert.IsFalse(view.End.activeSelf, "no end text while the fight goes on");
 
             var tapped = false;
-            view.ShowEnd(outcome, 57, () => tapped = true);
+            view.ShowEnd(outcome, 57, 3, 5, () => tapped = true);
             Assert.IsTrue(view.End.activeSelf);
-            Assert.AreEqual(title, view.EndTitle.text);
-            Assert.AreEqual("Fight took 57 turns", view.EndLine.text);
-            view.EndButton.onClick.Invoke();
+            Assert.AreEqual(title, view.Result.Title.text);
+            Assert.AreEqual("Fight took 57 turns · 3 of 5 heroes standing", view.Result.Line.text);
+            view.Result.PlayAgain.onClick.Invoke();
             Assert.IsTrue(tapped);
 
             var again = TestFight();
