@@ -13,6 +13,7 @@ namespace HeroHQ.Screens
     // P2a-09: your side waits for your taps (arm, then commit); the enemy side is still chosen by EnemyAI.
     // P2b-01: an ultimate plays the real cut-in (CutIn) and the hits wait for it; "seen it" is kept per hero id.
     // P2b-03: a hold on a figure or a turn-bar entry opens the hero card; a hold on a button reads its sentence.
+    // P2b-04: a tap on a hero you can't pick shakes it; the view slides the buttons in on your choice and out on your commit.
     public class BattleScreen : MonoBehaviour
     {
         [Header("The six data files (set by BattleSceneBuilder)")]
@@ -276,7 +277,7 @@ namespace HeroHQ.Screens
             ShowChoosing();
         }
 
-        // Taps count only while your hero is choosing: an enemy's turn and the playing back are locked (17.5).
+        // Taps count only while your hero is choosing: on an enemy's turn and while it plays back the buttons are hidden (17.3.1).
         bool Choosing => fight != null && fight.Acting != null && fight.Acting.Side == Side.Player && !Committed.HasValue;
 
         /// <summary>
@@ -329,7 +330,11 @@ namespace HeroHQ.Screens
                 }
                 Aimed = hero;
             }
-            else Reason = WhyNot(option, hero);
+            else
+            {
+                Reason = WhyNot(option, hero);
+                if (!hero.KnockedOut) View.Figures[hero].Shake();   // 17.3.1 Q4: a hero you can't pick shakes and nothing else happens
+            }
             ShowChoosing();
         }
 
@@ -363,7 +368,7 @@ namespace HeroHQ.Screens
             Armed = null;
             Aimed = null;
             Reason = null;
-            View.ClearChoosing();   // locked while what happened plays back
+            View.ClearChoosing();   // the buttons slide out while what happened plays back
         }
 
         // Redraws the buttons, the info strip and every hero's glow, dim, outline and hit chip from the rules.

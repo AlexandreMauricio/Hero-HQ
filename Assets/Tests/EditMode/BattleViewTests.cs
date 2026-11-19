@@ -646,5 +646,285 @@ namespace HeroHQ.Tests
             figure.ShowTargeted(false);
             Assert.IsFalse(figure.TargetRing.activeSelf);
         }
+
+        // ---- the movements (P2b-04; 02 GDD 17.4, 17.6; 03 Architecture 8.1 A4) ----------------------------------------------
+        //
+        // Nothing here waits for a frame: a Mover is told how much time has passed (Advance), as Hold is told with Tick.
+
+        static void Finish(Transform under)
+        {
+            foreach (var m in under.GetComponentsInChildren<Mover>(true).ToArray())
+                if (m != null) m.Advance(5);
+        }
+
+        static Mover MoverOn(string name, out RectTransform rect)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            rect = (RectTransform)go.transform;
+            return go.AddComponent<Mover>();
+        }
+
+        [Test]
+        public void AMover_SlidesToItsPlace_EasedAtBothEnds_AndStopsThere()
+        {
+            var mover = MoverOn("slide", out var rect);
+            try
+            {
+                mover.MoveTo(new Vector2(100, 0), 0.3f);
+                Assert.IsTrue(mover.Moving);
+                Assert.AreEqual(Vector2.zero, rect.anchoredPosition, "nothing moves until time passes");
+                mover.Advance(0.15f);
+                Assert.AreEqual(50, rect.anchoredPosition.x, 0.01f, "half way at half the time");
+                mover.Advance(0.05f);
+                Assert.Less(rect.anchoredPosition.x, 100);
+                mover.Advance(0.1f);
+                Assert.AreEqual(new Vector2(100, 0), rect.anchoredPosition);
+                Assert.IsFalse(mover.Moving, "then it stops");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(rect.gameObject); }
+        }
+
+        [Test]
+        public void AMover_ANewMoveOnABoxStillMoving_StartsWhereItIs_AndEndsAtTheNewestPlace()
+        {
+            var mover = MoverOn("restart", out var rect);
+            try
+            {
+                mover.MoveTo(new Vector2(100, 0), 0.3f);
+                mover.Advance(0.15f);
+                var mid = rect.anchoredPosition;
+                mover.MoveTo(new Vector2(-40, 10), 0.3f);
+                mover.Advance(0);
+                Assert.AreEqual(mid, rect.anchoredPosition, "no jump: the new slide starts from where the box is");
+                mover.Advance(1);
+                Assert.AreEqual(new Vector2(-40, 10), rect.anchoredPosition);
+                Assert.AreEqual(new Vector2(-40, 10), mover.Home);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(rect.gameObject); }
+        }
+
+        [Test]
+        public void AMover_AShakeWobblesAroundThePlace_ThenIsOver_AndAShakeDuringASlideStillEndsAtTheSlidesPlace()
+        {
+            var mover = MoverOn("shake", out var rect);
+            try
+            {
+                mover.Shake(0.3f, 14);
+                mover.Advance(0.025f);
+                Assert.AreNotEqual(0, rect.anchoredPosition.x, "off its place mid-shake");
+                Assert.AreEqual(0, rect.anchoredPosition.y, "left and right only");
+                mover.Advance(1);
+                Assert.AreEqual(Vector2.zero, rect.anchoredPosition, "back on its place");
+                Assert.IsFalse(mover.Moving);
+
+                mover.MoveTo(new Vector2(60, 0), 0.3f);
+                mover.Shake(0.3f, 14);
+                mover.Advance(1);
+                Assert.AreEqual(new Vector2(60, 0), rect.anchoredPosition, "both over: the slide's place");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(rect.gameObject); }
+        }
+
+        [Test]
+        public void AMover_ThatVanishes_FadesAndRemovesItsBox_WhenTheSlideEnds()
+        {
+            var parent = new GameObject("parent", typeof(RectTransform));
+            var mover = MoverOn("leaving", out var rect);
+            rect.SetParent(parent.transform, false);
+            try
+            {
+                mover.MoveTo(new Vector2(-50, 0), 0.4f, vanish: true);
+                mover.Advance(0.2f);
+                Assert.AreEqual(0.5f, rect.GetComponent<CanvasGroup>().alpha, 0.01f, "half faded at half the time");
+                mover.Advance(0.3f);
+                Assert.AreEqual(0, parent.transform.childCount, "gone");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(parent); }
+        }
+
+        // ---- the bar slides (17.4) ----
+
+        static PredictedTurn Turn(Fighter who, bool skipped = false) => new PredictedTurn(who, skipped);
+
+        [Test]
+        public void TheBar_WhenTheOrderChanges_SlidesEntriesFromWhereTheyWere_TheFirstLeaves_ANewOneArrivesOnTheRight()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var p = fight.Players;
+            var e = fight.Enemies;
+            view.ShowBar(new[] { Turn(p[0]), Turn(p[1]), Turn(e[0]), Turn(p[2]), Turn(e[1]) });
+            Finish(view.BarRow);
+            var oldX = view.Bar.ToDictionary(b => b.Who, b => b.Rect.anchoredPosition.x);
+            var first = view.Bar[0].Rect.gameObject;
+
+            // p0 acted: it leaves; the others move up one place; p3 arrives on the right.
+            var after = new[] { Turn(p[1]), Turn(e[0]), Turn(p[2]), Turn(e[1]), Turn(p[3]) };
+            view.ShowBar(after);
+
+            Assert.AreEqual(5, view.Bar.Count);
+            Assert.IsTrue(first != null, "the entry that acted is still on screen, on its way out");
+            Assert.AreEqual(oldX[p[1]], view.Bar[0].Rect.anchoredPosition.x, "p1's entry starts where it stood");
+            Assert.AreEqual(oldX[e[0]], view.Bar[1].Rect.anchoredPosition.x, "e0's entry starts where it stood");
+            Assert.Greater(view.Bar[4].Rect.anchoredPosition.x, BattleView.BarX(5, 4), "p3 starts to the right of its place");
+            Assert.AreEqual(6, view.BarRow.childCount, "five new entries and the one that is leaving");
+
+            foreach (var m in view.BarRow.GetComponentsInChildren<Mover>()) Assert.IsTrue(m.Moving);
+            Finish(view.BarRow);
+
+            for (int i = 0; i < after.Length; i++)
+                Assert.AreEqual(BattleView.BarX(after.Length, i), view.Bar[i].Rect.anchoredPosition.x, 0.01f, $"entry {i + 1} ends where a plain redraw puts it");
+            Assert.AreEqual(5, view.BarRow.childCount, "the first one is gone and nothing else is left over");
+            Assert.IsTrue(first == null);
+        }
+
+        [Test]
+        public void TheBar_AKnockedOutHerosEntries_VanishWhereTheyStood_AndTheOthersCloseUp()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var p = fight.Players;
+            var e = fight.Enemies;
+            view.ShowBar(new[] { Turn(p[0]), Turn(e[0]), Turn(p[1]), Turn(e[0]), Turn(p[2]) });
+            Finish(view.BarRow);
+            var standing = view.Bar[1].Rect.gameObject;
+
+            view.ShowBar(new[] { Turn(p[1]), Turn(p[2]), Turn(p[0]) });   // e0 fell: both its entries are gone
+            Assert.IsTrue(standing != null, "its entries are still fading");
+            Finish(view.BarRow);
+            Assert.IsTrue(standing == null);
+            Assert.AreEqual(3, view.BarRow.childCount);
+            Assert.IsFalse(view.Bar.Any(b => b.Who == e[0]));
+            for (int i = 0; i < 3; i++) Assert.AreEqual(BattleView.BarX(3, i), view.Bar[i].Rect.anchoredPosition.x, 0.01f);
+        }
+
+        [Test]
+        public void TheBar_RedrawnWithTheSameOrder_MovesNothing()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var order = new[] { Turn(fight.Players[0]), Turn(fight.Enemies[0]), Turn(fight.Players[1]) };
+            view.ShowBar(order);
+            view.ShowBar(order);
+            Assert.AreEqual(3, view.BarRow.childCount);
+            Assert.AreEqual(0, view.BarRow.GetComponentsInChildren<Mover>().Length, "nothing to slide");
+            for (int i = 0; i < 3; i++) Assert.AreEqual(BattleView.BarX(3, i), view.Bar[i].Rect.anchoredPosition.x, 0.01f);
+        }
+
+        [Test]
+        public void TheBar_OverARealFight_EveryActionSlidesAndEndsExactlyWhereAPlainRedrawPutsIt()
+        {
+            var data = Real();
+            var players = data.Teams["greek_strike"];
+            var enemies = data.Teams["enemy_crew"];
+            var length = (int)data.Tuning["turn_bar_length"];
+            var shown = 0;
+            var started = false;
+            Play(data, players, enemies, seed: 1, after: (fight, batch) =>
+            {
+                if (!started)
+                {
+                    started = true;
+                    view.ShowFight(fight, data.Formations[players.Formation], data.Formations[enemies.Formation]);
+                }
+                if (fight.Outcome != Outcome.Going) return;
+                var turns = fight.PredictTurns(length);
+                view.ShowBar(turns);
+                Finish(view.BarRow);
+                shown++;
+                Assert.AreEqual(turns.Count, view.BarRow.childCount, $"after action {shown}: nothing left over");
+                for (int i = 0; i < turns.Count; i++)
+                {
+                    Assert.AreSame(turns[i].Who, view.Bar[i].Who);
+                    Assert.AreEqual(BattleView.BarX(turns.Count, i), view.Bar[i].Rect.anchoredPosition.x, 0.01f, $"after action {shown}, entry {i + 1}");
+                }
+            });
+            Assert.Greater(shown, 20, "a real fight's worth of redraws");
+        }
+
+        // ---- the acting hero steps forward (17.6) ----
+
+        [Test]
+        public void TheActingHero_StepsThirtyPixelsTowardTheMiddle_WithTheRing_AndBackAfter_EitherSide()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            foreach (var (hero, toward) in new[] { (fight.Players[0], +1f), (fight.Enemies[0], -1f) })
+            {
+                var figure = view.Figures[hero];
+                var rest = figure.Root.anchoredPosition;
+                view.ShowActing(hero);
+                Assert.IsTrue(figure.Ring.activeSelf);
+                Assert.AreEqual(rest, figure.Root.anchoredPosition, "the step takes time; the ring is on at once");
+                Finish(view.Field);
+                Assert.AreEqual(rest + new Vector2(30 * toward, 0), figure.Root.anchoredPosition, $"{hero}: 30 px toward the middle");
+
+                view.ShowActing(null);
+                Finish(view.Field);
+                Assert.AreEqual(rest, figure.Root.anchoredPosition, $"{hero}: back on its square");
+                Assert.AreEqual(figure.Rest, figure.Root.anchoredPosition);
+            }
+        }
+
+        [Test]
+        public void TheActingHero_WhoFallsOnItsOwnTurn_GoesBackToItsSquareToo()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var hero = fight.Players[0];
+            var figure = view.Figures[hero];
+            view.ShowActing(hero);
+            Finish(view.Field);
+            figure.ShowKnockedOut();
+            Finish(view.Field);
+            Assert.AreEqual(figure.Rest, figure.Root.anchoredPosition);
+            Assert.IsTrue(figure.EmptySlot.activeSelf);
+        }
+
+        // ---- a knockout greys and slides off (17.6) ----
+
+        [Test]
+        public void AKnockout_SlidesAGreyCopyOfTheBoxOffTowardItsOwnEdge_InItsOwnBeat_AndLeavesTheEmptySquare()
+        {
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            foreach (var (hero, outward) in new[] { (fight.Players[2], -1f), (fight.Enemies[2], +1f) })
+            {
+                var figure = view.Figures[hero];
+                figure.ShowKnockedOut();
+                Assert.IsFalse(figure.Box.activeSelf, "the real box is off at once");
+                var copy = figure.Root.Find("Falling box");
+                Assert.IsTrue(copy != null, $"{hero}: a copy takes over the leaving");
+                Assert.AreEqual(1, figure.Root.Cast<Transform>().Count(c => c.name == "Falling box"));
+
+                figure.ShowKnockedOut();                                  // the screen calls it again after every action
+                Assert.AreEqual(1, figure.Root.Cast<Transform>().Count(c => c.name == "Falling box"), "once only");
+
+                var mover = copy.GetComponent<Mover>();
+                mover.Advance(HeroFigure.FallSeconds / 2);
+                var x = ((RectTransform)copy).anchoredPosition.x;
+                Assert.AreEqual(outward, Mathf.Sign(x), "toward its own side's edge");
+                Assert.Less(copy.GetComponent<CanvasGroup>().alpha, 1, "fading");
+                mover.Advance(HeroFigure.FallSeconds);
+                Assert.IsTrue(figure.Root.Find("Falling box") == null, "gone after its beat");
+                Assert.IsTrue(figure.EmptySlot.activeSelf, "the square stays");
+                Assert.IsFalse(figure.Box.activeSelf);
+                Assert.AreEqual(figure.Rest, figure.Root.anchoredPosition, "nobody moves into it");
+            }
+        }
+
+        [Test]
+        public void TheKnockoutsSlide_FitsInItsBeat_AndNothingTheScreenWaitsForGrew()
+        {
+            Assert.LessOrEqual(HeroFigure.FallSeconds, Beat, "the slide rides the knockout's own beat (R32)");
+            Assert.LessOrEqual(BattleView.BarSlideSeconds, 2 * Beat, "the bar's slide ends within the next action's beats");
+            var fight = TestFight();
+            Show(fight, "3-2", "3-2");
+            var playback = new Playback(fight);
+            var hero = fight.Enemies[0];
+            view.ShowEvent(Event(FightEventKind.Damaged, hero, amount: hero.MaxHealth), playback, Beat);
+            Assert.AreEqual(Beat, view.ShowEvent(Event(FightEventKind.KnockedOut, hero), playback, Beat), "the knockout still holds one beat, no more");
+            Assert.IsTrue(view.Figures[hero].Root.Find("Falling box") != null);
+        }
     }
 }

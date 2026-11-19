@@ -52,6 +52,7 @@ namespace HeroHQ.Screens
             Root.anchorMin = Root.anchorMax = new Vector2(0.5f, 1);
             Root.sizeDelta = new Vector2(Width, BoxHeight);
             Root.anchoredPosition = at;
+            Rest = at;
 
             // P2a-09: the whole box is a tap target (an invisible picture that catches the tap; see the Glossary, *raycast*).
             var tapArea = Root.gameObject.AddComponent<Image>();
@@ -278,7 +279,33 @@ namespace HeroHQ.Screens
             rect.anchoredPosition = new Vector2(centre, 0);
         }
 
-        public void ShowActing(bool acting) => Ring.SetActive(acting && !KnockedOut);
+        // ---- the movements (P2b-04; 02 GDD 17.6) -----------------------------------------------------------------------------
+
+        /// <summary>How far the acting hero steps toward the middle, and how long that takes; the shake's size and length; the knocked-out box's slide (its own beat).</summary>
+        public const float StepPixels = 30, StepSeconds = 0.15f, ShakePixels = 14, ShakeSeconds = 0.3f, FallPixels = 180, FallSeconds = 0.4f;
+
+        /// <summary>Where the figure stands (its square); a step goes out from here and comes back to it.</summary>
+        public Vector2 Rest { get; }
+
+        Mover mover;
+        bool stepped;
+
+        // Made on first use, so a figure that never moves carries no script.
+        Mover Mover => mover != null ? mover : (mover = Root.gameObject.AddComponent<Mover>());
+
+        /// <summary>The acting ring, and the step: the acting hero stands 30 px nearer the middle while it acts and goes back after.</summary>
+        public void ShowActing(bool acting)
+        {
+            var on = acting && !KnockedOut;
+            Ring.SetActive(on);
+            if (on == stepped) return;
+            stepped = on;
+            var forward = new Vector2(Who.Side == Side.Player ? StepPixels : -StepPixels, 0);   // yours stand left of the middle
+            Mover.MoveTo(on ? Rest + forward : Rest, StepSeconds);
+        }
+
+        /// <summary>A tap on a hero you can't pick: the figure shakes a little and nothing else happens.</summary>
+        public void Shake() => Mover.Shake(ShakeSeconds, ShakePixels);
 
         /// <summary>A red outline round the box: where the enemy's skill is about to land (17.7). Off unless asked.</summary>
         public GameObject TargetRing { get; }
@@ -332,13 +359,35 @@ namespace HeroHQ.Screens
         /// <summary>The hero fell: the box goes, the grey empty slot stays, nobody moves into it (02 GDD 2, 17.6).</summary>
         public void ShowKnockedOut()
         {
+            SlideOff();   // once: the screen calls this again after every action for a fallen hero, and the box is off by then
             KnockedOut = true;
             Box.SetActive(false);
+            if (stepped) { stepped = false; Mover.MoveTo(Rest, StepSeconds); }
             Ring.SetActive(false);
             TargetRing.SetActive(false);
             SpotRing.SetActive(false);
             ShowChoosing(false, false, false, null);
             Shield.SetActive(false);
+        }
+
+        // The box leaves the way a fallen hero should (17.6): a grey copy of it slides out toward its own edge and fades in
+        // the knockout's own beat, while the real box is switched off at once (so everything that asks "is the box on?"
+        // keeps its meaning) and the square's grey frame stays.
+        void SlideOff()
+        {
+            if (!Box.activeSelf) return;
+            var copy = Object.Instantiate(Box, Root, false);
+            copy.name = "Falling box";
+            copy.transform.SetSiblingIndex(Box.transform.GetSiblingIndex());
+            foreach (var graphic in copy.GetComponentsInChildren<Graphic>(true))
+            {
+                var grey = Color.Lerp(graphic.color, BattleView.Grey, 0.75f);
+                grey.a = graphic.color.a;
+                graphic.color = grey;
+            }
+            var outward = new Vector2(Who.Side == Side.Player ? -FallPixels : FallPixels, 0);
+            var rect = (RectTransform)copy.transform;
+            copy.AddComponent<Mover>().MoveTo(rect.anchoredPosition + outward, FallSeconds, vanish: true);
         }
     }
 }

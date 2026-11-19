@@ -103,7 +103,10 @@ namespace HeroHQ.Tests
             Assert.AreEqual(Button.Basic, screen.Committed.Value.Button);
             Assert.AreSame(e[1], screen.Committed.Value.Target);
             AssertNothingShowing(fight);
-            foreach (var b in View.Buttons) Assert.AreEqual(Look.Locked, b.Look, $"{b.Kind} locked while it plays back");
+            foreach (var b in View.Buttons) Assert.AreEqual(Look.Hidden, b.Look, $"{b.Kind} hidden while it plays back (P2b-04)");
+            Assert.IsFalse(View.ButtonsShown);
+            Assert.IsFalse(View.ButtonsTakeTaps, "no tap reaches them from the moment you commit");
+            Assert.AreEqual(new Vector2(0, -BattleView.ButtonHideDrop), View.ButtonsBox.GetComponent<Mover>().Home, "sliding out");
         }
 
         [Test]
@@ -526,23 +529,110 @@ namespace HeroHQ.Tests
         }
 
         [Test]
-        public void Buttons_LockedOrNotChoosing_ShowNoSymbols_AndTheyComeBackWithTheNextChoice()
+        public void Buttons_HiddenWhenNotChoosing_KeepTheirFaceWhileTheyLeave_AndComeBackWithTheNextChoice()
         {
+            // P2b-04 (17.3.1): hidden, not greyed. They keep what they showed while they slide out (a blank grey button
+            // sliding away would look wrong); the next choice redraws them.
             var fight = AtP0();
             screen.BeginYourTurn(fight);
             Assert.IsTrue(View.Buttons.All(b => b.Symbols.Count > 0 && b.Dots.Count > 0), "set-up: every button has them");
 
-            View.ShowButtonsLocked();
-            foreach (var b in View.Buttons)
-            {
-                Assert.AreEqual(0, b.Symbols.Count, b.Kind.ToString());
-                Assert.AreEqual(0, b.Dots.Count, b.Kind.ToString());
-                Assert.IsNull(b.Reach);
-                Assert.AreEqual(0, b.SymbolRow.childCount);
-            }
+            View.HideButtons();
+            Assert.IsTrue(View.Buttons.All(b => b.Look == Look.Hidden));
+            Assert.IsTrue(View.Buttons.All(b => b.Symbols.Count > 0), "still drawn while they leave");
 
             screen.BeginYourTurn(fight);
-            Assert.IsTrue(View.Buttons.All(b => b.Symbols.Count > 0 && b.Dots.Count > 0), "back with the next choice");
+            Assert.IsTrue(View.ButtonsShown);
+            Assert.IsTrue(View.Buttons.All(b => b.Look != Look.Hidden && b.Symbols.Count > 0 && b.Dots.Count > 0), "back with the next choice");
+        }
+
+        [Test]
+        public void TheButtons_AreOnScreenOnlyWhileYourHeroChooses_SlidingInAndOutIn15Hundredths()
+        {
+            var fight = AtP0();
+            var box = View.ButtonsBox.GetComponent<Mover>();
+            var away = new Vector2(0, -BattleView.ButtonHideDrop);
+            Assert.IsFalse(View.ButtonsShown, "a fight starts with them away");
+            Assert.IsFalse(View.ButtonsTakeTaps);
+            Assert.AreEqual(away, View.ButtonsBox.anchoredPosition, "put away at once, not slid");
+            Assert.AreEqual(0.15f, BattleView.ButtonSlideSeconds);
+
+            screen.BeginYourTurn(fight);
+            Assert.IsTrue(View.ButtonsShown);
+            Assert.IsTrue(View.ButtonsTakeTaps);
+            Assert.AreEqual(Vector2.zero, box.Home, "sliding in");
+            box.Advance(0.075f);
+            Assert.Greater(View.ButtonsBox.anchoredPosition.y, away.y, "on the way");
+            Assert.Less(View.ButtonsBox.anchoredPosition.y, 0, "not there yet");
+            box.Advance(0.1f);
+            Assert.AreEqual(Vector2.zero, View.ButtonsBox.anchoredPosition, "in");
+            screen.TapButton(Button.Basic);                       // arming redraws them; nothing slides again
+            Assert.IsFalse(box.Moving);
+
+            screen.TapHero(fight.Enemies[0]);                     // commits
+            Assert.IsFalse(View.ButtonsShown);
+            Assert.IsFalse(View.ButtonsTakeTaps, "no tap reaches them from the moment you commit");
+            box.Advance(0.2f);
+            Assert.AreEqual(away, View.ButtonsBox.anchoredPosition, "out");
+        }
+
+        [Test]
+        public void WhileTheButtonsAreAway_TheCornerShowsTheActingHeroAndTheirTurn_RedForARival_AndIsEmptyWhenNobodyActs()
+        {
+            var fight = AtP0();
+            Assert.IsFalse(View.Corner.gameObject.activeSelf, "nobody acting");
+
+            View.ShowActing(fight.Acting);                        // p0, before the choice opens
+            Assert.IsTrue(View.Corner.gameObject.activeSelf, "the buttons are away, somebody acts");
+            Assert.AreEqual($"{fight.Acting.Hero.ShortName}'s turn", View.CornerText.text);
+            Assert.AreEqual(BattleView.Blue, View.CornerText.color);
+            Assert.AreEqual(fight.Acting.Hero.Name.Substring(0, 2), View.CornerInitials.text, "the initials, as on the bar");
+
+            screen.BeginYourTurn(fight);
+            Assert.IsFalse(View.Corner.gameObject.activeSelf, "the buttons are in: their place is taken");
+            screen.TapButton(Button.Basic);
+            screen.TapHero(fight.Enemies[0]);
+            Assert.IsTrue(View.Corner.gameObject.activeSelf, "after the commit the corner shows who is acting while it plays");
+
+            View.ShowActing(fight.Enemies[0]);
+            Assert.AreEqual(BattleView.Red, View.CornerText.color, "a rival's turn is red");
+            Assert.AreEqual($"{fight.Enemies[0].Hero.ShortName}'s turn", View.CornerText.text);
+
+            View.ShowActing(null);
+            Assert.IsFalse(View.Corner.gameObject.activeSelf, "at the result nobody is acting");
+        }
+
+        [Test]
+        public void ANewFight_StartsWithTheButtonsAway_EvenIfTheLastOneWasQuitMidSlide()
+        {
+            var fight = AtP0();
+            screen.BeginYourTurn(fight);                          // sliding in, never finished
+            View.ShowFight(fight, fight.Data.Formations["3-2"], fight.Data.Formations["3-2"]);
+            Assert.IsFalse(View.ButtonsShown);
+            Assert.IsFalse(View.ButtonsBox.GetComponent<Mover>().Moving);
+            Assert.AreEqual(new Vector2(0, -BattleView.ButtonHideDrop), View.ButtonsBox.anchoredPosition);
+        }
+
+        [Test]
+        public void ATapOnAHeroYouCantPick_ShakesItAndDoesNothingElse_AndThePickableOnesDontShake()
+        {
+            var fight = AtP0();
+            var e = fight.Enemies;
+            screen.BeginYourTurn(fight);
+            screen.TapButton(Button.Basic);                       // e3 and e4 are covered by the front row
+            var covered = F(e[3]);
+            Assert.IsFalse(covered.Root.TryGetComponent<Mover>(out _), "nothing has moved it yet");
+
+            screen.TapHero(e[3]);
+            Assert.AreEqual(BattleScreen.FrontRowFirst, screen.Reason);
+            Assert.IsNull(screen.Committed, "nothing committed");
+            var mover = covered.Root.GetComponent<Mover>();
+            Assert.IsTrue(mover.Moving, "it shakes");
+            mover.Advance(0.025f);
+            Assert.AreNotEqual(covered.Rest, covered.Root.anchoredPosition, "off its square mid-shake");
+            mover.Advance(1);
+            Assert.AreEqual(covered.Rest, covered.Root.anchoredPosition, "back on its square");
+            Assert.IsFalse(F(e[1]).Root.TryGetComponent<Mover>(out _), "nobody else moved");
         }
 
         [Test]
@@ -599,7 +689,7 @@ namespace HeroHQ.Tests
         }
 
         [Test]
-        public void OnAnEnemysTurn_TheButtonsAreLocked_AndNoTapDoesAnything()
+        public void OnAnEnemysTurn_TheButtonsAreHidden_AndNoTapDoesAnything()
         {
             var fight = AtP0();
             screen.BeginYourTurn(fight);
@@ -616,7 +706,9 @@ namespace HeroHQ.Tests
             screen.TapEmpty();
             Assert.IsNull(screen.Armed);
             Assert.AreSame(first.Target, screen.Committed.Value.Target, "nothing new committed");
-            foreach (var b in View.Buttons) Assert.AreEqual(Look.Locked, b.Look);
+            foreach (var b in View.Buttons) Assert.AreEqual(Look.Hidden, b.Look, "hidden, not greyed (P2b-04)");
+            Assert.IsFalse(View.ButtonsShown);
+            Assert.IsFalse(View.ButtonsTakeTaps, "no tap reaches a hidden button");
         }
 
         // ---- the real fight, played through the taps ---------------------------------------------------------------

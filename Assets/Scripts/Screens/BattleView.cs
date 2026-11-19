@@ -13,6 +13,8 @@ namespace HeroHQ.Screens
     // P2a-07: the ten figures at their formation's places, the turn-order bar (17.4, no sliding yet), the seed in a
     // corner and the end text. P2a-08: the beats, numbers and banner. P2a-09: the three buttons, the turn line and the
     // info strip in the bottom band, and the taps (passed on to BattleScreen through HeroTapped, EmptyTapped, ButtonTapped).
+    // P2b-04: the bar's entries slide, and the three buttons exist only while your hero is choosing (they slide in and out;
+    // the bottom band's right corner shows the acting hero's face and turn line the rest of the time).
     public class BattleView
     {
         const float ReferenceWidth = 1920, ReferenceHeight = 1080;
@@ -171,7 +173,7 @@ namespace HeroHQ.Screens
                     figure.ShowShield(Targeting.Covered(fight, hero));
                     figures[hero] = figure;
                 }
-            ShowButtonsLocked();
+            HideButtons(slide: false);   // a new fight starts with the buttons away, mid-slide or not
             ShowActing(null);
         }
 
@@ -205,6 +207,8 @@ namespace HeroHQ.Screens
             foreach (var pair in figures) pair.Value.ShowActing(pair.Key == acting);
             TurnLine.text = acting == null ? "" : $"{acting.Hero.ShortName}'s turn";
             TurnLine.color = acting != null && acting.Side == Side.Enemy ? Red : Blue;
+            actingNow = acting;
+            ShowCorner();
         }
 
         // ---- the bottom band: whose turn, the info strip, the three buttons (P2a-09; 02 GDD 17.3, 17.5) ----------------
@@ -219,8 +223,8 @@ namespace HeroHQ.Screens
             /// <summary>The Ultimate under 100: grey, with the charge.</summary>
             Charging,
             UltimateReady,
-            /// <summary>All three greyed: an enemy's turn, or the screen playing what happened.</summary>
-            Locked,
+            /// <summary>Not your hero's choice (an enemy's turn, the show, the result): the buttons are off the screen (17.3.1, OWNER 2026-11-18).</summary>
+            Hidden,
         }
 
         /// <summary>One of the three skill buttons as drawn.</summary>
@@ -274,7 +278,13 @@ namespace HeroHQ.Screens
             InfoStrip.resizeTextMinSize = 32;
             InfoStrip.resizeTextMaxSize = 40;
 
-            // Right part: Basic, Special, Ultimate from left to right, standing on the band's bottom edge.
+            // Right part: the corner (the acting hero's face and turn, shown while the buttons are away), then the three
+            // buttons on top of it, in one box that slides them in and out together (P2b-04).
+            BuildCorner();
+            buttonsRoot = NewRect("Buttons", BottomBand);
+            buttonsRoot.Inset(0);
+            buttonsGroup = buttonsRoot.gameObject.AddComponent<CanvasGroup>();
+            buttonsMover = buttonsRoot.gameObject.AddComponent<Mover>();
             var right = 0f;
             foreach (var kind in new[] { HeroHQ.Rules.Button.Ultimate, HeroHQ.Rules.Button.Special, HeroHQ.Rules.Button.Basic })
             {
@@ -283,12 +293,17 @@ namespace HeroHQ.Screens
                 buttons.Insert(0, SkillButtonAt(kind, size, right));
                 right += size.x + ButtonGap;
             }
-            ShowButtonsLocked();
+            foreach (var b in buttons)
+            {
+                b.Name.text = b.Kind.ToString();
+                Draw(b, ButtonLook.Hidden, "", 0);
+            }
+            HideButtons(slide: false);
         }
 
         SkillButton SkillButtonAt(HeroHQ.Rules.Button kind, Vector2 size, float fromRight)
         {
-            var rect = NewRect(kind.ToString(), BottomBand);
+            var rect = NewRect(kind.ToString(), buttonsRoot);
             rect.anchorMin = rect.anchorMax = new Vector2(1, 0);
             rect.pivot = new Vector2(1, 0);
             rect.sizeDelta = size;
@@ -402,6 +417,7 @@ namespace HeroHQ.Screens
         /// </summary>
         public void ShowButtons(IReadOnlyList<ButtonOption> options, HeroHQ.Rules.Button? armed, int cooldown, double charge)
         {
+            ShowButtonsPanel();
             foreach (var b in buttons)
             {
                 var option = options[(int)b.Kind];
@@ -418,37 +434,128 @@ namespace HeroHQ.Screens
             }
         }
 
-        /// <summary>All three greyed, with plain words (17.5 Locked): an enemy's turn, or what happened playing back.</summary>
-        public void ShowButtonsLocked()
+        // ---- the buttons only exist on your hero's choice (17.3.1 *No buttons off-turn*, OWNER 2026-11-18) -------------------
+
+        /// <summary>How long the three buttons take to slide in or out (17.3.1), and how far down they go (clear of the screen's bottom edge).</summary>
+        public const float ButtonSlideSeconds = 0.15f, ButtonHideDrop = 340;
+
+        RectTransform buttonsRoot;
+        CanvasGroup buttonsGroup;
+        Mover buttonsMover;
+
+        /// <summary>The three buttons are on the screen (or sliding in): only while one of your heroes is choosing.</summary>
+        public bool ButtonsShown { get; private set; }
+        /// <summary>The box the three buttons slide in. Its <c>Mover.Home</c> says where it is going: 0 when shown, <see cref="ButtonHideDrop"/> down when hidden.</summary>
+        public RectTransform ButtonsBox => buttonsRoot;
+        /// <summary>True while the buttons accept taps: shown, and not sliding out.</summary>
+        public bool ButtonsTakeTaps => buttonsGroup.blocksRaycasts;
+
+        // Your hero is choosing: the buttons slide up from the bottom (once; later taps only redraw them).
+        void ShowButtonsPanel()
         {
-            foreach (var b in buttons)
-            {
-                b.Name.text = b.Kind.ToString();
-                ShowSymbols(b, null);
-                Draw(b, ButtonLook.Locked, "", 0);
-            }
+            if (ButtonsShown) return;
+            ButtonsShown = true;
+            buttonsGroup.blocksRaycasts = true;
+            buttonsMover.MoveTo(Vector2.zero, ButtonSlideSeconds);
+            ShowCorner();
+        }
+
+        /// <summary>
+        /// Not your hero's choice: the buttons slide out (17.3.1: hidden during playback, cut-ins, the result and every
+        /// enemy turn, not greyed) and no tap reaches them from this moment. They keep what they showed while they leave;
+        /// the next choice redraws them. <paramref name="slide"/> false puts them away at once (a new fight; the build).
+        /// </summary>
+        public void HideButtons(bool slide = true)
+        {
+            ButtonsShown = false;
+            buttonsGroup.blocksRaycasts = false;
+            var away = new Vector2(0, -ButtonHideDrop);
+            if (slide) buttonsMover.MoveTo(away, ButtonSlideSeconds);
+            else buttonsMover.SnapTo(away);
+            foreach (var b in buttons) b.Look = ButtonLook.Hidden;
             if (InfoStrip != null) InfoStrip.text = "";
+            ShowCorner();
+        }
+
+        // ---- the corner: whose turn it is while the buttons are away (17.3.1) ---------------------------------------------
+
+        /// <summary>The acting hero's face and "name's turn" in the bottom band's right corner (a placeholder block with the initials, as on the bar).</summary>
+        public RectTransform Corner { get; private set; }
+        public Text CornerText { get; private set; }
+        public Text CornerInitials { get; private set; }
+        Image cornerFrame, cornerBadge;
+        Fighter actingNow;
+        const float CornerWidth = 600, CornerHeight = 200, FaceSize = 160;
+
+        void BuildCorner()
+        {
+            Corner = NewRect("Acting corner", BottomBand);
+            Corner.anchorMin = Corner.anchorMax = new Vector2(1, 0);
+            Corner.pivot = new Vector2(1, 0);
+            Corner.sizeDelta = new Vector2(CornerWidth, CornerHeight);
+            Corner.anchoredPosition = new Vector2(0, 10);
+
+            cornerFrame = Panel("Face", Corner, Blue);
+            var face = cornerFrame.rectTransform;
+            face.anchorMin = face.anchorMax = new Vector2(1, 0.5f);
+            face.pivot = new Vector2(1, 0.5f);
+            face.sizeDelta = new Vector2(FaceSize, FaceSize);
+            face.anchoredPosition = Vector2.zero;
+            var inside = Panel("Inside", face, Body).rectTransform;
+            inside.Inset(6);
+            CornerInitials = Label("Initials", inside, "", 64, Color.white, TextAnchor.MiddleCenter);
+            CornerInitials.fontStyle = FontStyle.Bold;
+            cornerBadge = Panel("Badge", inside, Blue, Rounded);
+            cornerBadge.rectTransform.anchorMin = cornerBadge.rectTransform.anchorMax = new Vector2(0, 1);
+            cornerBadge.rectTransform.sizeDelta = new Vector2(28, 28);
+            cornerBadge.rectTransform.anchoredPosition = new Vector2(20, -20);
+
+            CornerText = Label("Turn", Corner, "", 52, Blue, TextAnchor.MiddleRight);
+            CornerText.fontStyle = FontStyle.Bold;
+            CornerText.rectTransform.offsetMax = new Vector2(-(FaceSize + 16), 0);
+            CornerText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            CornerText.resizeTextForBestFit = true;
+            CornerText.resizeTextMinSize = 36;
+            CornerText.resizeTextMaxSize = 52;
+            Corner.gameObject.SetActive(false);
+        }
+
+        // On while somebody is acting and the buttons are away; yours blue with a round badge, the rival's red with a diamond.
+        void ShowCorner()
+        {
+            if (Corner == null) return;
+            Corner.gameObject.SetActive(actingNow != null && !ButtonsShown);
+            if (actingNow == null) return;
+            var mine = actingNow.Side == Side.Player;
+            var name = actingNow.Hero.Name;
+            CornerInitials.text = name.Substring(0, Math.Min(2, name.Length));
+            CornerText.text = $"{actingNow.Hero.ShortName}'s turn";
+            CornerText.color = mine ? Blue : Red;
+            cornerFrame.color = mine ? Blue : Red;
+            cornerBadge.color = mine ? Blue : Red;
+            cornerBadge.sprite = mine ? Rounded : null;
+            cornerBadge.rectTransform.localRotation = mine ? Quaternion.identity : Quaternion.Euler(0, 0, 45);
         }
 
         void Draw(SkillButton b, ButtonLook look, string state, float charge)
         {
             b.Look = look;
             b.State.text = state;
-            var grey = look == ButtonLook.Waiting || look == ButtonLook.Charging || look == ButtonLook.Locked;
+            var grey = look == ButtonLook.Waiting || look == ButtonLook.Charging || look == ButtonLook.Hidden;
             b.Frame.color = look == ButtonLook.UltimateReady || (look == ButtonLook.Armed && b.Kind == HeroHQ.Rules.Button.Ultimate) ? Gold
                           : grey ? Grey : Blue;
             b.State.color = look == ButtonLook.UltimateReady ? Gold : Color.white;
-            b.Group.alpha = look == ButtonLook.Locked ? 0.4f : 1;
+            b.Group.alpha = 1;
             b.Outline.SetActive(look == ButtonLook.Armed);
             b.Rect.anchoredPosition = new Vector2(b.Rect.anchoredPosition.x, b.RestY + (look == ButtonLook.Armed ? 16 : 0));
             b.ChargeFill.Span(0, charge);
         }
 
-        /// <summary>Not choosing any more: every glow, dim, outline and hit chip off, the buttons locked.</summary>
+        /// <summary>Not choosing any more: every glow, dim, outline and hit chip off, the buttons slide out.</summary>
         public void ClearChoosing()
         {
             foreach (var figure in figures.Values) figure.ShowChoosing(false, false, false, null);
-            ShowButtonsLocked();
+            HideButtons();
         }
 
         /// <summary>The info strip's words: the armed skill's sentence, a reason, or nothing.</summary>
@@ -634,23 +741,67 @@ namespace HeroHQ.Screens
 
         // ---- the turn-order bar (17.4) ---------------------------------------------------------------------------
 
+        /// <summary>How long the bar's entries take to slide to their new places (17.4).</summary>
+        public const float BarSlideSeconds = 0.3f;
+
+        /// <summary>The centre x of entry <paramref name="index"/> in a bar of <paramref name="count"/> entries: NOW larger, the bar centred.</summary>
+        public static float BarX(int count, int index)
+        {
+            var width = count == 0 ? 0 : NowSize + (count - 1) * (EntrySize + EntryGap);
+            var left = -width / 2 + (index == 0 ? 0 : NowSize + EntryGap + (index - 1) * (EntrySize + EntryGap));
+            return left + (index == 0 ? NowSize : EntrySize) / 2;
+        }
+
         /// <summary>
         /// Redraws the bar from <c>PredictTurns</c>: next to act on the left, the first one larger with NOW; a blue
         /// frame and round badge for yours, red with a diamond for the rival; the first two letters of the name; a
-        /// stunned (skipped) turn dimmed and struck through. No sliding in 2a.
+        /// stunned (skipped) turn dimmed and struck through. P2b-04 (17.4): when the order has changed, the entries slide
+        /// to their new places in 0.3 s instead of jumping: the first one (who has acted) slides out to the left, each
+        /// other entry goes from where its hero's entry was to where it now is, a new one arrives from the right, and an
+        /// entry with no place left (a hero who fell) fades where it stood. The slides run on their own and add no waiting.
         /// </summary>
         public void ShowBar(IReadOnlyList<PredictedTurn> turns)
         {
+            var old = bar.ToList();
             bar.Clear();   // first: see ShowFight
-            Clear(BarRow);
-            var width = turns.Count == 0 ? 0 : NowSize + (turns.Count - 1) * (EntrySize + EntryGap);
-            var x = -width / 2;
+            var same = old.Count == turns.Count;
+            for (int i = 0; same && i < old.Count; i++) same = old[i].Who == turns[i].Who && old[i].Skipped == turns[i].Skipped;
+            if (same || old.Count == 0) Clear(BarRow);   // nothing moved: a plain redraw
+
+            // Which old entry each new one comes from (the first old one has acted, so it is never one of them).
+            var pool = old.Skip(1).ToList();
+            var from = new float[turns.Count];
+            for (int i = 0; i < turns.Count; i++)
+            {
+                var came = same ? null : pool.FirstOrDefault(e => e.Who == turns[i].Who);
+                if (came != null) pool.Remove(came);
+                from[i] = came != null ? came.Rect.anchoredPosition.x
+                        : same || old.Count == 0 ? BarX(turns.Count, i)
+                        : BarX(turns.Count, turns.Count - 1) + EntrySize + EntryGap;   // arrives from the right
+                if (came != null) Mover.Remove(came.Rect.gameObject);
+            }
+
+            // What is left of the old bar leaves: the first slides out to the left, the others fade where they stood.
+            if (!same && old.Count > 0)
+            {
+                foreach (var leaving in pool.Prepend(old[0]).Where(e => e.Rect != null))
+                {
+                    leaving.Rect.GetComponent<Image>().raycastTarget = false;   // not in the way of the new entries
+                    leaving.Hold.enabled = false;
+                    var place = leaving.Rect.anchoredPosition;
+                    var away = leaving == old[0] ? place - new Vector2(NowSize + EntryGap, 0) : place;
+                    leaving.Rect.gameObject.AddComponent<Mover>().MoveTo(away, BarSlideSeconds, vanish: true);
+                }
+            }
+
             for (int i = 0; i < turns.Count; i++)
             {
                 var now = i == 0;
-                var size = now ? NowSize : EntrySize;
-                bar.Add(Entry(turns[i], now, size, x + size / 2));
-                x += size + EntryGap;
+                var entry = Entry(turns[i], now, now ? NowSize : EntrySize, from[i]);
+                bar.Add(entry);
+                var to = BarX(turns.Count, i);
+                if (Mathf.Approximately(from[i], to)) continue;
+                entry.Rect.gameObject.AddComponent<Mover>().MoveTo(new Vector2(to, 0), BarSlideSeconds);
             }
         }
 
