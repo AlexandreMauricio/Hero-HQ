@@ -153,6 +153,7 @@ namespace HeroHQ.Tests
         GameObject root;
         BattleScreen screen;
         readonly Dictionary<string, int?> savedSeen = new Dictionary<string, int?>();
+        int? savedSetting;   // P2b-05: the cut-in setting is in PlayerPrefs too (key BattleScreen.CutInSettingKey)
 
         static GameData real;
         static GameData Real()
@@ -171,6 +172,8 @@ namespace HeroHQ.Tests
         public void BuildScreen()
         {
             savedSeen.Clear();
+            savedSetting = PlayerPrefs.HasKey(BattleScreen.CutInSettingKey) ? PlayerPrefs.GetInt(BattleScreen.CutInSettingKey) : (int?)null;
+            PlayerPrefs.DeleteKey(BattleScreen.CutInSettingKey);
             foreach (var id in HeroIdsTestsUse().Distinct())
             {
                 var key = BattleScreen.SeenKeyPrefix + id;
@@ -187,6 +190,8 @@ namespace HeroHQ.Tests
         public void PutBack()
         {
             UnityEngine.Object.DestroyImmediate(root);
+            if (savedSetting.HasValue) PlayerPrefs.SetInt(BattleScreen.CutInSettingKey, savedSetting.Value);
+            else PlayerPrefs.DeleteKey(BattleScreen.CutInSettingKey);
             foreach (var pair in savedSeen)
                 if (pair.Value.HasValue) PlayerPrefs.SetInt(pair.Key, pair.Value.Value);
                 else PlayerPrefs.DeleteKey(pair.Key);

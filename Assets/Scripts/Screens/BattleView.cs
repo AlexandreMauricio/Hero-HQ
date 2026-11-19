@@ -15,6 +15,7 @@ namespace HeroHQ.Screens
     // info strip in the bottom band, and the taps (passed on to BattleScreen through HeroTapped, EmptyTapped, ButtonTapped).
     // P2b-04: the bar's entries slide, and the three buttons exist only while your hero is choosing (they slide in and out;
     // the bottom band's right corner shows the acting hero's face and turn line the rest of the time).
+    // P2b-05: the gear in the top strip and the settings panel (SettingsPanel); ClearShow takes a cut-in and banner away.
     public class BattleView
     {
         const float ReferenceWidth = 1920, ReferenceHeight = 1080;
@@ -99,6 +100,9 @@ namespace HeroHQ.Screens
         /// <summary>The hero card's box (P2b-03).</summary>
         public HeroCardView Card { get; } = new HeroCardView();
 
+        /// <summary>The gear in the top strip and the settings panel (P2b-05).</summary>
+        public SettingsPanel Settings { get; } = new SettingsPanel();
+
         public void Build(Transform parent)
         {
             var go = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -143,6 +147,7 @@ namespace HeroHQ.Screens
             BuildBottomBand();
             BuildEnd();
             Card.Build(SafeArea);   // last, so it draws over everything in the safe area
+            Settings.Build(TopStrip, Canvas.transform);   // P2b-05: both carry their own sorting, so they stay above a cut-in
         }
 
         // ---- the fight on the field ------------------------------------------------------------------------------
@@ -556,6 +561,20 @@ namespace HeroHQ.Screens
         {
             foreach (var figure in figures.Values) figure.ShowChoosing(false, false, false, null);
             HideButtons();
+        }
+
+        /// <summary>
+        /// Takes away whatever the show has put over the battle: a cut-in that is playing, the off look, the banner
+        /// (P2b-05: Quit fight mid-cut-in leaves no cut-in behind).
+        /// </summary>
+        public void ClearShow()
+        {
+            for (int i = Canvas.transform.childCount - 1; i >= 0; i--)
+            {
+                var child = Canvas.transform.GetChild(i).gameObject;
+                if (child.name == "Cut-in" || child.name == "Off look" || child.name == "Off look flash") Mover.Remove(child);
+            }
+            Clear(Banner);
         }
 
         /// <summary>The info strip's words: the armed skill's sentence, a reason, or nothing.</summary>

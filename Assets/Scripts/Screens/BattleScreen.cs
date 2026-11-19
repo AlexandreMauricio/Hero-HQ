@@ -14,6 +14,7 @@ namespace HeroHQ.Screens
     // P2b-01: an ultimate plays the real cut-in (CutIn) and the hits wait for it; "seen it" is kept per hero id.
     // P2b-03: a hold on a figure or a turn-bar entry opens the hero card; a hold on a button reads its sentence.
     // P2b-04: a tap on a hero you can't pick shakes it; the view slides the buttons in on your choice and out on your commit.
+    // P2b-05: the gear opens the settings panel, which pauses the game (Time.timeScale 0); Cut-ins is kept in PlayerPrefs.
     public class BattleScreen : MonoBehaviour
     {
         [Header("The six data files (set by BattleSceneBuilder)")]
@@ -30,13 +31,33 @@ namespace HeroHQ.Screens
         [Tooltip("The cut-in pictures in Assets/Art/CutIns (set by BattleSceneBuilder); heroes.json names them.")]
         public Sprite[] cutInArt;
 
-        /// <summary>The cut-in setting (02 GDD 17.8): the default until P2b-05's settings panel can change it.</summary>
-        public CutInSetting CutInSetting { get; set; } = CutInSetting.FirstTimeFullThenShort;
+        /// <summary>
+        /// The cut-in setting (02 GDD 17.8), kept between runs in PlayerPrefs (a small built-in store of named values that
+        /// survives closing the game; 03 Architecture 8.5). <i>First time full, then short</i> until somebody changes it;
+        /// a stored number that is no setting also reads as that.
+        /// </summary>
+        public CutInSetting CutInSetting
+        {
+            get
+            {
+                var stored = PlayerPrefs.GetInt(CutInSettingKey, (int)CutInSetting.FirstTimeFullThenShort);
+                return System.Enum.IsDefined(typeof(CutInSetting), stored) ? (CutInSetting)stored : CutInSetting.FirstTimeFullThenShort;
+            }
+            set
+            {
+                if (CutInSetting == value && PlayerPrefs.HasKey(CutInSettingKey)) return;
+                PlayerPrefs.SetInt(CutInSettingKey, (int)value);
+                PlayerPrefs.Save();
+            }
+        }
+
+        public const string CutInSettingKey = "cutin_setting";
 
         // Phase 2a's fixed teams (04 Phases, OWNER 2026-11-17): the Greek strike against the crew. Team select is 2b.
         const string PlayerTeam = "greek_strike", EnemyTeam = "enemy_crew";
 
-        public GameData Data { get; private set; }
+        /// <summary>The six files, loaded by <c>Start</c>. Public to set so a test can start fights without the scene.</summary>
+        public GameData Data { get; set; }
         public BattleView View { get; private set; }
 
         Fight fight;
@@ -65,6 +86,16 @@ namespace HeroHQ.Screens
             View.HeroHeld = HoldHero;
             View.ButtonHeld = HoldButton;
             View.HoldEnded = EndHold;
+            View.Settings.GearTapped = OpenSettings;
+            View.Settings.ResumeTapped = Resume;
+            View.Settings.QuitTapped = QuitFight;
+            View.Settings.CutInChosen = ChooseCutIn;
+        }
+
+        // The panel pauses the game; if the screen goes while it is open (the scene closes), time must not stay stopped.
+        void OnDestroy()
+        {
+            if (SettingsOpen) Time.timeScale = 1;
         }
 
         void Update()
@@ -203,6 +234,70 @@ namespace HeroHQ.Screens
             PlayerPrefs.Save();
         }
 
+        // ---- settings and pause (P2b-05; 02 GDD 17.8; 03 Architecture 8.1 A5, R33) -----------------------------------------
+        //
+        // The gear opens one panel. While it is open Time.timeScale is 0 (Unity's game clock stops: every wait of the fight,
+        // the cut-in, the sliding boxes and the floating numbers count that clock, so all of them stand still) and a shade
+        // over the whole screen takes every tap. The tap methods below also refuse while it is open, so no path reaches the
+        // field or the buttons. Resume changes nothing but the clock: the buttons stay where they were.
+
+        /// <summary>The settings panel is open, and the game is paused.</summary>
+        public bool SettingsOpen { get; private set; }
+
+        /// <summary>The gear was tapped: the panel opens (a card held open closes), and the game pauses. Public so a test can tap it.</summary>
+        public void OpenSettings()
+        {
+            if (SettingsOpen) return;
+            SettingsOpen = true;
+            CardOf = null;
+            View.HideHold();
+            Time.timeScale = 0;
+            View.Settings.Show(CutInSetting);
+        }
+
+        /// <summary>Resume: the panel closes and the game runs again. Nothing else moves (the buttons are not slid again).</summary>
+        public void Resume()
+        {
+            if (!SettingsOpen) return;
+            SettingsOpen = false;
+            Time.timeScale = 1;
+            View.Settings.Hide();
+        }
+
+        /// <summary>A Cut-ins choice: kept at once (it applies to the next ultimate, also in this fight) and lit in the panel.</summary>
+        public void ChooseCutIn(CutInSetting setting)
+        {
+            CutInSetting = setting;
+            View.Settings.ShowChoice(setting);
+        }
+
+        /// <summary>
+        /// Quit fight (17.8): the fight ends with no result and a new one starts (team select takes over in P2b-11). Every
+        /// wait stops with the coroutines, a cut-in or banner on screen goes, nothing is armed, and the clock runs again.
+        /// The new fight puts the buttons away at once, so it starts with them hidden until your first choice (03 8.10).
+        /// </summary>
+        public void QuitFight()
+        {
+            StopAllCoroutines();
+            if (SettingsOpen)
+            {
+                SettingsOpen = false;
+                View.Settings.Hide();
+            }
+            Time.timeScale = 1;
+            fight = null;
+            playback = null;
+            Armed = null;
+            Aimed = null;
+            Committed = null;
+            Reason = null;
+            CardOf = null;
+            View.HideHold();
+            View.ClearShow();
+            View.HideButtons(slide: false);
+            if (Data != null) StartCoroutine(Run());   // a test with no data has no fight to start
+        }
+
         // ---- holds (P2b-03; 02 GDD 17.1, 17.4, 17.5; 03 Architecture 8.1 A3) ------------------------------------------
         //
         // A finger held 0.4 s (Hold) opens the hero card, or reads a button's sentence; lifting closes it. A hold never
@@ -278,7 +373,8 @@ namespace HeroHQ.Screens
         }
 
         // Taps count only while your hero is choosing: on an enemy's turn and while it plays back the buttons are hidden (17.3.1).
-        bool Choosing => fight != null && fight.Acting != null && fight.Acting.Side == Side.Player && !Committed.HasValue;
+        // The panel counts as not choosing: no tap reaches the field or the buttons while it is open (P2b-05).
+        bool Choosing => !SettingsOpen && fight != null && fight.Acting != null && fight.Acting.Side == Side.Player && !Committed.HasValue;
 
         /// <summary>
         /// A button: an unusable one does nothing (its grey look and number say why); another button arms it; the armed
